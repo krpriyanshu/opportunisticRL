@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!--
+  gz_ros2_control hardware interface for the Panda arm + hand, mirroring
+  moveit_resources_panda_moveit_config's own panda.ros2_control.xacro /
+  panda_hand.ros2_control.xacro (same joint/interface layout, so its
+  unmodified ros2_controllers.yaml and moveit_controllers.yaml work
+  as-is), but with the gz_ros2_control/GazeboSimSystem hardware plugin
+  instead of mock_components/isaac; upstream only ships those two,
+  neither of which drives real Gazebo physics. Not editing the upstream
+  file; this is a parallel file for the one hardware backend it doesn't
+  cover. See docs/implementation-status.md.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="arm_joint" params="joint_name initial_positions">
+    <joint name="${joint_name}">
+      <command_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">${initial_positions[joint_name]}</param>
+      </state_interface>
+      <state_interface name="velocity">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="panda_gz_ros2_control" params="name initial_positions_file">
+    <xacro:property name="initial_positions"
+                     value="${xacro.load_yaml(initial_positions_file)['initial_positions']}"/>
+
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+      <xacro:arm_joint joint_name="panda_joint1" initial_positions="${initial_positions}"/>
+      <xacro:arm_joint joint_name="panda_joint2" initial_positions="${initial_positions}"/>
+      <xacro:arm_joint joint_name="panda_joint3" initial_positions="${initial_positions}"/>
+      <xacro:arm_joint joint_name="panda_joint4" initial_positions="${initial_positions}"/>
+      <xacro:arm_joint joint_name="panda_joint5" initial_positions="${initial_positions}"/>
+      <xacro:arm_joint joint_name="panda_joint6" initial_positions="${initial_positions}"/>
+      <xacro:arm_joint joint_name="panda_joint7" initial_positions="${initial_positions}"/>
+    </ros2_control>
+  </xacro:macro>
+
+  <xacro:macro name="panda_hand_gz_ros2_control" params="name">
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+      <joint name="panda_finger_joint1">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+      <joint name="panda_finger_joint2">
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+    </ros2_control>
+  </xacro:macro>
+
+</robot>

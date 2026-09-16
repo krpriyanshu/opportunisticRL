@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opportunity-rl"
+version = "0.0.1"
+description = "Opportunity-aware RL for dynamic robotic grasping under marine disturbance (research code)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "opportunity_rl contributors" }]
+# PyYAML: configs/disturbances/*.yaml (Milestone M4) needs loading
+# regardless of whether the `rl` extra is installed -- config parsing is
+# not itself an RL-training dependency, so it stays in the required base
+# set rather than bundled into `rl` (engineering-review.md's own
+# recommendation: dataclasses + YAML, decided before M4 started).
+dependencies = ["pyyaml>=6.0"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+# Activated starting Milestone M5 (RL environment). Not required for M0.
+rl = [
+    "numpy>=1.26",
+    "torch>=2.2",
+    "gymnasium>=0.29",
+]
+# Standalone plotting/animation for scripts/*.py exploration tools (e.g.
+# visualize_opportunity_concept.py). Deliberately separate from `rl`: a
+# machine reproducing a figure should not need torch/gymnasium, and vice
+# versa. matplotlib pulls in pillow itself (GIF export needs no ffmpeg).
+viz = [
+    "numpy>=1.26",
+    "matplotlib>=3.8",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+opportunity_rl = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "N"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+# 3.12, not the package's declared 3.10 floor: CI (.github/workflows/ci.yml)
+# only ever runs on 3.12, and numpy's own stubs (viz/rl extras) use PEP 695
+# `type` syntax unconditionally, which mypy refuses to check against a
+# pre-3.12 target regardless of what the code itself needs. Concretely:
+# mypy targeting 3.10 cannot check any file that imports numpy at all.
+# `requires-python = ">=3.10"` above is therefore currently aspirational,
+# not verified -- see docs/engineering-review.md.
+python_version = "3.12"
+packages = ["opportunity_rl"]
+ignore_missing_imports = true
+disallow_untyped_defs = false
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+# The ROS2 packages' own test dirs are included deliberately. Their tests
+# cover the pure, ROS2-free halves of those packages (quaternion math,
+# joint filtering, pose-text parsing, finite differencing) and need no
+# rclpy, but living outside `tests/` meant `pytest` and CI never ran them
+# -- 15 passing tests sitting dark. `pythonpath` puts the two ament_python
+# packages on sys.path so they import without a colcon build.
+testpaths = [
+    "tests",
+    "ros2_ws/src/marine_state_estimator/test",
+    "ros2_ws/src/marine_manipulation/test",
+]
+pythonpath = [
+    "ros2_ws/src/marine_state_estimator",
+    "ros2_ws/src/marine_manipulation",
+]
+addopts = "-ra"

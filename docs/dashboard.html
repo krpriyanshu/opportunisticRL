@@ -1,0 +1,1127 @@
+<title>Mission Control — Opportunity-Aware Grasping</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #eef3f3;
+    --bg-panel: #ffffff;
+    --bg-panel-raised: #ffffff;
+    --bg-sunken: #e4ebeb;
+    --ink: #10222a;
+    --ink-muted: #52707a;
+    --ink-faint: #7c949c;
+    --line: #c9d8da;
+    --line-strong: #9db4b8;
+    --accent: #0e7c7b;
+    --accent-ink: #ffffff;
+    --accent-soft: #d9ecec;
+    --status-done: #1f8f63;
+    --status-done-soft: #e0f2e8;
+    --status-progress: #b5791f;
+    --status-progress-soft: #f7ecd9;
+    --status-open: #c24a2e;
+    --status-open-soft: #fbe6e0;
+    --status-neutral: #6b838c;
+    --status-neutral-soft: #e9eef0;
+    --shadow: 0 1px 2px rgba(16, 34, 42, 0.06), 0 6px 20px -8px rgba(16, 34, 42, 0.18);
+    --font-display: Charter, "Iowan Old Style", "Noto Serif", Georgia, "Times New Roman", serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Roboto Mono",
+      monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1620;
+      --bg-panel: #101f2c;
+      --bg-panel-raised: #16293a;
+      --bg-sunken: #0a141d;
+      --ink: #e7eef0;
+      --ink-muted: #93aab2;
+      --ink-faint: #5f7982;
+      --line: #22404c;
+      --line-strong: #2e5561;
+      --accent: #35c2c1;
+      --accent-ink: #06201f;
+      --accent-soft: #123634;
+      --status-done: #4fae83;
+      --status-done-soft: #123527;
+      --status-progress: #e0a83e;
+      --status-progress-soft: #3a2c11;
+      --status-open: #e2694a;
+      --status-open-soft: #3a1c14;
+      --status-neutral: #7c949c;
+      --status-neutral-soft: #1a2933;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1620;
+    --bg-panel: #101f2c;
+    --bg-panel-raised: #16293a;
+    --bg-sunken: #0a141d;
+    --ink: #e7eef0;
+    --ink-muted: #93aab2;
+    --ink-faint: #5f7982;
+    --line: #22404c;
+    --line-strong: #2e5561;
+    --accent: #35c2c1;
+    --accent-ink: #06201f;
+    --accent-soft: #123634;
+    --status-done: #4fae83;
+    --status-done-soft: #123527;
+    --status-progress: #e0a83e;
+    --status-progress-soft: #3a2c11;
+    --status-open: #e2694a;
+    --status-open-soft: #3a1c14;
+    --status-neutral: #7c949c;
+    --status-neutral-soft: #1a2933;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef3f3;
+    --bg-panel: #ffffff;
+    --bg-panel-raised: #ffffff;
+    --bg-sunken: #e4ebeb;
+    --ink: #10222a;
+    --ink-muted: #52707a;
+    --ink-faint: #7c949c;
+    --line: #c9d8da;
+    --line-strong: #9db4b8;
+    --accent: #0e7c7b;
+    --accent-ink: #ffffff;
+    --accent-soft: #d9ecec;
+    --status-done: #1f8f63;
+    --status-done-soft: #e0f2e8;
+    --status-progress: #b5791f;
+    --status-progress-soft: #f7ecd9;
+    --status-open: #c24a2e;
+    --status-open-soft: #fbe6e0;
+    --status-neutral: #6b838c;
+    --status-neutral-soft: #e9eef0;
+    --shadow: 0 1px 2px rgba(16, 34, 42, 0.06), 0 6px 20px -8px rgba(16, 34, 42, 0.18);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; }
+  a { color: var(--accent); }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .shell { max-width: 1240px; margin: 0 auto; padding: 28px 24px 64px; }
+
+  /* ---------- Header / mission banner ---------- */
+  header.banner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px 32px;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 28px;
+  }
+  header.banner .title-block h1 { font-size: 30px; letter-spacing: -0.01em; }
+  header.banner .title-block p {
+    margin: 6px 0 0;
+    color: var(--ink-muted);
+    max-width: 52ch;
+    font-size: 14.5px;
+  }
+  .banner-stats { display: flex; gap: 22px; flex-wrap: wrap; }
+  .banner-stat { text-align: right; }
+  .banner-stat .num { font-family: var(--font-mono); font-size: 22px; font-weight: 600; }
+  .banner-stat .label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* ---------- Grid ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 18px;
+  }
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 18px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .panel > .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .panel h2 { font-size: 17px; }
+  .panel .panel-sub { color: var(--ink-muted); font-size: 12.5px; margin-top: 2px; }
+  .span-12 { grid-column: span 12; }
+  .span-8 { grid-column: span 8; }
+  .span-7 { grid-column: span 7; }
+  .span-6 { grid-column: span 6; }
+  .span-5 { grid-column: span 5; }
+  .span-4 { grid-column: span 4; }
+  @media (max-width: 980px) {
+    .grid { grid-template-columns: 1fr; }
+    .span-12, .span-8, .span-7, .span-6, .span-5, .span-4 { grid-column: 1; }
+  }
+
+  /* ---------- Status pills ---------- */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill-done { color: var(--status-done); background: var(--status-done-soft); }
+  .pill-progress { color: var(--status-progress); background: var(--status-progress-soft); }
+  .pill-open { color: var(--status-open); background: var(--status-open-soft); }
+  .pill-neutral { color: var(--status-neutral); background: var(--status-neutral-soft); }
+
+  /* ---------- Tables ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    background: var(--bg-sunken);
+    position: sticky;
+    top: 0;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-sunken); }
+  td.id-cell, th.id-cell { font-family: var(--font-mono); white-space: nowrap; }
+
+  /* ---------- Milestone depth profile ---------- */
+  .depth-caption { color: var(--ink-muted); font-size: 12.5px; margin-top: -4px; }
+  .depth-legend { display: flex; gap: 18px; font-size: 11.5px; color: var(--ink-muted); flex-wrap: wrap; }
+  .depth-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .depth-legend i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  /* ---------- Definition-style lists ---------- */
+  dl.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
+  dl.kv dt { color: var(--ink-muted); font-size: 12px; }
+  dl.kv dd { margin: 0; font-family: var(--font-mono); }
+
+  .formula {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: var(--bg-sunken);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    line-height: 1.7;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .hyp-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .hyp-card .hyp-id { font-family: var(--font-mono); font-size: 12px; color: var(--accent); }
+  .hyp-card p { margin: 0; font-size: 13px; }
+  .hyp-card .hyp-meta { color: var(--ink-faint); font-size: 11.5px; }
+
+  .doc-list { display: flex; flex-direction: column; gap: 2px; }
+  .doc-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    padding: 7px 0;
+    border-bottom: 1px dashed var(--line);
+    font-size: 13px;
+  }
+  .doc-row:last-child { border-bottom: none; }
+  .doc-row .doc-name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent);
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .doc-row .doc-desc { color: var(--ink-muted); flex: 1 1 32ch; min-width: 0; }
+  .doc-group-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-top: 8px;
+  }
+  .doc-group-label:first-child { margin-top: 0; }
+
+  .findings-list { display: flex; flex-direction: column; gap: 10px; }
+  .finding { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+  .finding .mark {
+    flex: none;
+    width: 20px; height: 20px;
+    border-radius: 5px;
+    display: grid; place-items: center;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    margin-top: 1px;
+  }
+  .finding.fixed .mark { background: var(--status-done-soft); color: var(--status-done); }
+  .finding.open .mark { background: var(--status-open-soft); color: var(--status-open); }
+  .finding p { margin: 0; }
+  .finding .sub { color: var(--ink-muted); font-size: 12px; }
+
+  code.inline {
+    font-family: var(--font-mono);
+    background: var(--bg-sunken);
+    border: 1px solid var(--line);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+  pre.cmd {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    background: var(--bg-sunken);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    margin: 0;
+    line-height: 1.6;
+  }
+  pre.cmd .c { color: var(--ink-faint); }
+
+  /* ---------- Sim panel ---------- */
+  .sim-layout { display: grid; grid-template-columns: 1fr 220px; gap: 16px; }
+  @media (max-width: 720px) { .sim-layout { grid-template-columns: 1fr; } }
+  .sim-canvases { display: flex; flex-direction: column; gap: 10px; }
+  canvas { display: block; width: 100%; border-radius: 8px; background: var(--bg-sunken); border: 1px solid var(--line); }
+  .sim-controls { display: flex; flex-direction: column; gap: 12px; }
+  .sim-controls .field { display: flex; flex-direction: column; gap: 4px; }
+  .sim-controls label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+    display: flex;
+    justify-content: space-between;
+  }
+  .sim-controls input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .seg {
+    display: flex;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .seg button {
+    flex: 1;
+    background: var(--bg-panel);
+    border: none;
+    color: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    padding: 7px 4px;
+    cursor: pointer;
+  }
+  .seg button.active { background: var(--accent); color: var(--accent-ink); }
+  .btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 7px;
+    padding: 8px 10px;
+    cursor: pointer;
+  }
+  .btn:focus-visible, .seg button:focus-visible, input:focus-visible, a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--ink-muted);
+    border: 1px solid var(--line);
+  }
+  .btn-row { display: flex; gap: 8px; }
+  .readout {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-muted);
+    padding-top: 8px;
+    border-top: 1px dashed var(--line);
+  }
+  .readout .line { margin: 3px 0; }
+  .readout b { color: var(--ink); }
+
+  footer {
+    margin-top: 36px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--ink-faint);
+    font-size: 12px;
+    font-family: var(--font-mono);
+  }
+</style>
+
+<div class="shell">
+
+  <header class="banner">
+    <div class="title-block">
+      <p class="eyebrow">Opportunity-Aware RL · Marine Grasping</p>
+      <h1>Mission Control</h1>
+      <p>A manipulator on a disturbed vessel deciding when to grasp an independently moving
+        target. This board is a snapshot of specification, environment, and open work —
+        not a live feed. Regenerate it by hand when project state changes.</p>
+    </div>
+    <div class="banner-stats">
+      <div class="banner-stat">
+        <div class="num mono">M11</div>
+        <div class="label">Milestones done</div>
+      </div>
+      <div class="banner-stat">
+        <div class="num mono">H1</div>
+        <div class="label">Sample-eff. yes, ceiling no</div>
+      </div>
+      <div class="banner-stat">
+        <div class="num mono">17/18</div>
+        <div class="label">Low-budget B4&gt;B2 (p=.0001)</div>
+      </div>
+      <div class="banner-stat">
+        <div class="num mono">2026-08-14</div>
+        <div class="label">Snapshot date</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <!-- Milestone depth profile -->
+    <section class="panel span-12">
+      <div class="panel-head">
+        <div>
+          <h2>Milestone soundings</h2>
+          <p class="panel-sub">M0–M11, charted like a depth profile: sounded (measured) seabed for
+            completed work, a dotted line into unsounded water for what's ahead.</p>
+        </div>
+        <div class="depth-legend">
+          <span><i style="background:var(--status-done)"></i>done</span>
+          <span><i style="background:var(--status-progress)"></i>essentially done</span>
+          <span><i style="background:var(--ink-faint);border-top:1px dashed var(--ink-faint);height:0"></i>not started</span>
+        </div>
+      </div>
+      <svg id="depthChart" viewBox="0 0 1180 210" style="width:100%;height:auto;overflow:visible" role="img"
+        aria-label="Milestone progress chart, M0 through M11"></svg>
+    </section>
+
+    <!-- Hypotheses -->
+    <section class="panel span-5">
+      <div class="panel-head">
+        <div>
+          <h2>Hypotheses</h2>
+          <p class="panel-sub">docs/evaluation.md — resolved from the executed M9–M11 comparison.</p>
+        </div>
+        <span class="pill pill-progress">H1 partial</span>
+      </div>
+      <div class="hyp-card">
+        <span class="hyp-id">H1 · primary</span>
+        <p>An opportunity signal in the observation raises grasp success and/or lowers timing
+          regret vs. an otherwise-identical reactive policy, under matched conditions.</p>
+        <span class="hyp-meta">Partially supported: sample efficiency YES (17/18 low-budget wins,
+          p=.0001), final performance NO (8/18, p=.81).</span>
+      </div>
+      <div class="hyp-card">
+        <span class="hyp-id">H2 · secondary</span>
+        <p>The benefit of opportunity-awareness grows with disturbance magnitude.</p>
+        <span class="hyp-meta">Rejected: benefit present at all severities, doesn't scale with them.</span>
+      </div>
+      <div class="hyp-card">
+        <span class="hyp-id">H3 · secondary</span>
+        <p>Opportunity-aware policies generalize better outside the training distribution.</p>
+        <span class="hyp-meta">Not tested (distribution-shift split not built) — open.</span>
+      </div>
+      <div class="hyp-card">
+        <span class="hyp-id">H4 · secondary</span>
+        <p>How much of the oracle-vs-reactive timing-regret gap does opportunity-awareness close?</p>
+        <span class="hyp-meta">Not tested (oracle baseline not built) — open.</span>
+      </div>
+    </section>
+
+    <!-- Confound register -->
+    <section class="panel span-7">
+      <div class="panel-head">
+        <div>
+          <h2>Confound register</h2>
+          <p class="panel-sub">docs/architecture.md — every row must be resolved or explicitly accepted before a comparison counts as evidence.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="id-cell">#</th><th>Confound</th><th>Resolves</th></tr></thead>
+          <tbody>
+            <tr><td class="id-cell mono">1</td><td>Opportunity-aware policy sees more <em>unrelated</em> state than reactive</td><td class="mono">M8 / M9</td></tr>
+            <tr><td class="id-cell mono">2</td><td>Different action/decision frequency between policies</td><td class="mono">M5</td></tr>
+            <tr><td class="id-cell mono">3</td><td>Different controller capability between methods</td><td class="mono">M3 / M7</td></tr>
+            <tr><td class="id-cell mono">4</td><td>Different training disturbance distributions</td><td class="mono">M9 / M10</td></tr>
+            <tr><td class="id-cell mono">5</td><td>Different compute budget per algorithm</td><td class="mono">M9</td></tr>
+            <tr><td class="id-cell mono">6</td><td>Reward differs between baselines</td><td class="mono">M6 / M9</td></tr>
+            <tr><td class="id-cell mono">7</td><td>Opportunity estimator leaks future ground truth to the online policy</td><td class="mono">M8</td></tr>
+            <tr><td class="id-cell mono">8</td><td>Simulator state exposed to one method but not another</td><td class="mono">M5</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- RL spec: action + baselines -->
+    <section class="panel span-6">
+      <div class="panel-head">
+        <div>
+          <h2>Action space &amp; baseline ladder</h2>
+          <p class="panel-sub">docs/rl-formulation.md — discrete, shared across every baseline.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="id-cell">Value</th><th>Action</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td class="id-cell mono">0</td><td class="mono">WAIT</td><td>Hold pose, no motion commanded.</td></tr>
+            <tr><td class="id-cell mono">1</td><td class="mono">APPROACH</td><td>Move toward the current grasp candidate.</td></tr>
+            <tr><td class="id-cell mono">2</td><td class="mono">ATTEMPT_GRASP</td><td>Commit via the conventional manipulation stack.</td></tr>
+            <tr><td class="id-cell mono">3</td><td class="mono">ABORT</td><td>Cancel, return to standby.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="id-cell">ID</th><th>Baseline</th><th class="id-cell">Learned</th></tr></thead>
+          <tbody>
+            <tr><td class="id-cell mono">B0</td><td>Immediate heuristic — grasp iff good_opportunity</td><td class="id-cell">no</td></tr>
+            <tr><td class="id-cell mono">B1</td><td>Reactive heuristic, tunable thresholds</td><td class="id-cell">no</td></tr>
+            <tr><td class="id-cell mono">B2</td><td>Standard RL, reactive observation only</td><td class="id-cell">yes</td></tr>
+            <tr><td class="id-cell mono">B3</td><td>+ observation history / recurrent policy</td><td class="id-cell">yes</td></tr>
+            <tr><td class="id-cell mono">B4</td><td>+ OpportunityEstimator output <em>(proposed)</em></td><td class="id-cell">yes</td></tr>
+            <tr><td class="id-cell mono">Oracle</td><td>True-future timing reference — evaluation only</td><td class="id-cell">no</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- RL spec: observation + reward -->
+    <section class="panel span-6">
+      <div class="panel-head">
+        <div>
+          <h2>Observation &amp; reward</h2>
+          <p class="panel-sub">Fixed schema, one shared implementation per baseline class.</p>
+        </div>
+      </div>
+      <div class="table-wrap" style="max-height:180px;overflow-y:auto">
+        <table>
+          <thead><tr><th>Field</th><th class="id-cell">Dim</th><th class="id-cell">Unit</th></tr></thead>
+          <tbody>
+            <tr><td>relative_target_position</td><td class="id-cell mono">3</td><td class="id-cell mono">m</td></tr>
+            <tr><td>relative_target_orientation</td><td class="id-cell mono">4</td><td class="id-cell mono">quat</td></tr>
+            <tr><td>relative_target_linear_vel</td><td class="id-cell mono">3</td><td class="id-cell mono">m/s</td></tr>
+            <tr><td>relative_target_angular_vel</td><td class="id-cell mono">3</td><td class="id-cell mono">rad/s</td></tr>
+            <tr><td>ee_pose</td><td class="id-cell mono">7</td><td class="id-cell mono">m + quat</td></tr>
+            <tr><td>joint_state</td><td class="id-cell mono">2N</td><td class="id-cell mono">rad, rad/s</td></tr>
+            <tr><td>vessel_linear_vel</td><td class="id-cell mono">3</td><td class="id-cell mono">m/s</td></tr>
+            <tr><td>vessel_angular_vel</td><td class="id-cell mono">3</td><td class="id-cell mono">rad/s</td></tr>
+            <tr><td>distance_to_grasp_region</td><td class="id-cell mono">1</td><td class="id-cell mono">m</td></tr>
+            <tr><td>orientation_error</td><td class="id-cell mono">1</td><td class="id-cell mono">rad</td></tr>
+            <tr><td>relative_approach_velocity</td><td class="id-cell mono">1</td><td class="id-cell mono">m/s</td></tr>
+            <tr><td>task_state</td><td class="id-cell mono">K</td><td class="id-cell mono">enum</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="formula">R_t = R_success · 1[success]
+      − λ_f · C_failure
+      − λ_c · C_collision
+      − λ_t · C_time       (charged every step, incl. WAIT)
+      − λ_m · C_motion</div>
+    </section>
+
+    <!-- Environment telemetry -->
+    <section class="panel span-4">
+      <div class="panel-head">
+        <div>
+          <h2>Simulator telemetry</h2>
+          <p class="panel-sub">docs/environment.md — verified, not assumed.</p>
+        </div>
+      </div>
+      <dl class="kv">
+        <dt>ROS2</dt><dd>Jazzy Jalisco</dd>
+        <dt>Gazebo</dt><dd>Harmonic 8.11.0</dd>
+        <dt>VRX</dt><dd>v3.1.2, jazzy branch</dd>
+        <dt>World</dt><dd>sydney_regatta</dd>
+        <dt>Vessel</dt><dd>WAM-V, twin hull</dd>
+        <dt>Manipulator</dt><dd>Franka Panda, 7-DOF</dd>
+        <dt>Controllers</dt><dd>joint_state_broadcaster + panda_arm_controller</dd>
+        <dt>Wave model</dt><dd>Pierson-Moskowitz, 3 comp.</dd>
+        <dt>Wave period</dt><dd>5.0 s peak</dd>
+        <dt>Wave gain</dt><dd>0.3</dd>
+        <dt>Steepness</dt><dd>0.0 (linear)</dd>
+      </dl>
+      <div class="finding fixed" style="margin-top:2px">
+        <div class="mark">✓</div>
+        <div><p>M3: SRDF adapted for the vessel-mounted base (fixed <code class="inline">vessel_mount</code> virtual
+          joint, panda_link0 → wamv base); move_group launches with use_sim_time and the static grasp closes
+          via the DetachableJoint.</p>
+          <span class="sub">Still open: no RL has been trained against this ROS2/Gazebo backend — every H1
+            number is fast-backend only (see evaluation.md threats to validity).</span></div>
+      </div>
+    </section>
+
+    <!-- Engineering review -->
+    <section class="panel span-8">
+      <div class="panel-head">
+        <div>
+          <h2>Engineering review</h2>
+          <p class="panel-sub">docs/engineering-review.md — audited 2026-08-11, before M2.</p>
+        </div>
+      </div>
+      <div class="findings-list">
+        <div class="finding fixed">
+          <div class="mark">✓</div>
+          <div><p>mypy targeted Python 3.10 but numpy's stubs require 3.12+ syntax — silently
+            broke type-checking for anything importing numpy.</p>
+            <span class="sub">Fixed: retargeted to 3.12, matching CI and this environment.</span></div>
+        </div>
+        <div class="finding fixed">
+          <div class="mark">✓</div>
+          <div><p>3 pre-existing lint violations would have failed CI on first push.</p>
+            <span class="sub">Fixed: whole repo now passes ruff, mypy, and pytest clean.</span></div>
+        </div>
+        <div class="finding open">
+          <div class="mark">!</div>
+          <div><p>Zero git commits exist — all of M0/M1 sits on one disk with no history.</p>
+            <span class="sub">Not acted on — holding for explicit go-ahead.</span></div>
+        </div>
+        <div class="finding fixed">
+          <div class="mark">✓</div>
+          <div><p>Config system and results/ schema were built to the recommended shape across M4–M11:
+            dataclass configs + per-scenario YAML under <code class="inline">configs/</code>, seeded
+            reproducibility metadata as local JSON under <code class="inline">results/</code>.</p>
+            <span class="sub">Followed the recommendation — dataclasses + YAML over Hydra, local JSON over W&amp;B — no framework lock-in.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive toy simulator -->
+    <section class="panel span-12">
+      <div class="panel-head">
+        <div>
+          <h2>Opportunity window — live toy model</h2>
+          <p class="panel-sub">An independent in-browser reimplementation of
+            scripts/visualize_opportunity_concept.py's mechanism — for exploration, not a
+            claim about the real experiment's outcome. Not M4/M5/M8.</p>
+        </div>
+      </div>
+      <div class="sim-layout">
+        <div class="sim-canvases">
+          <canvas id="topdown" width="900" height="260" aria-label="Top-down view of vessel and target"></canvas>
+          <canvas id="timeline" width="900" height="130" aria-label="Opportunity score over time"></canvas>
+        </div>
+        <div class="sim-controls">
+          <div class="seg" role="group" aria-label="Decision policy">
+            <button id="policyReactive" class="active" type="button">reactive</button>
+            <button id="policyLookahead" type="button">lookahead</button>
+          </div>
+          <div class="field">
+            <label for="reachRadius"><span>reach radius</span><span id="reachRadiusVal" class="mono"></span></label>
+            <input id="reachRadius" type="range" min="0.8" max="2.4" step="0.05" value="1.6" />
+          </div>
+          <div class="field">
+            <label for="maxSpeed"><span>max rel. speed</span><span id="maxSpeedVal" class="mono"></span></label>
+            <input id="maxSpeed" type="range" min="0.15" max="0.6" step="0.01" value="0.35" />
+          </div>
+          <div class="field">
+            <label for="approachAmp"><span>approach amplitude</span><span id="approachAmpVal" class="mono"></span></label>
+            <input id="approachAmp" type="range" min="0.3" max="1.3" step="0.05" value="0.9" />
+          </div>
+          <div class="field">
+            <label for="approachPeriod"><span>approach period</span><span id="approachPeriodVal" class="mono"></span></label>
+            <input id="approachPeriod" type="range" min="5" max="16" step="0.5" value="10" />
+          </div>
+          <div class="field">
+            <label for="seedInput"><span>seed</span><span id="seedVal" class="mono"></span></label>
+            <input id="seedInput" type="range" min="0" max="49" step="1" value="1" />
+          </div>
+          <div class="btn-row">
+            <button id="playBtn" class="btn" type="button">Pause</button>
+            <button id="regenBtn" class="btn btn-ghost" type="button">Regenerate</button>
+          </div>
+          <div class="readout" id="readout">
+            <div class="line">successes <b>0</b> · aborts <b>0</b></div>
+            <div class="line">first commit <b>—</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dependencies / tooling -->
+    <section class="panel span-5">
+      <div class="panel-head">
+        <div>
+          <h2>Dependencies &amp; tooling</h2>
+          <p class="panel-sub">pyproject.toml optional extras.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="id-cell">Extra</th><th>Packages</th><th class="id-cell">Since</th></tr></thead>
+          <tbody>
+            <tr><td class="id-cell mono">dev</td><td>pytest, pytest-cov, ruff, mypy</td><td class="id-cell mono">M0</td></tr>
+            <tr><td class="id-cell mono">rl</td><td>numpy, torch, gymnasium</td><td class="id-cell mono">M5</td></tr>
+            <tr><td class="id-cell mono">viz</td><td>numpy, matplotlib</td><td class="id-cell mono">now</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre class="cmd"><span class="c"># from a clean checkout</span>
+ruff check .            <span class="c"># lint</span>
+ruff format .           <span class="c"># format</span>
+mypy src/opportunity_rl <span class="c"># type check</span>
+pytest                  <span class="c"># tests</span></pre>
+    </section>
+
+    <!-- Docs index -->
+    <section class="panel span-7">
+      <div class="panel-head">
+        <div>
+          <h2>Document index</h2>
+          <p class="panel-sub">docs/ — grouped by what kind of thing each file is.</p>
+        </div>
+      </div>
+      <div class="doc-list">
+        <div class="doc-group-label">Frozen spec — written before code, changed only deliberately</div>
+        <div class="doc-row"><span class="doc-name">research-question.md</span><span class="doc-desc">The question, hypotheses H1–H4, what counts as support or rejection.</span></div>
+        <div class="doc-row"><span class="doc-name">architecture.md</span><span class="doc-desc">Layered design, confound register, simulator selection.</span></div>
+        <div class="doc-row"><span class="doc-name">rl-formulation.md</span><span class="doc-desc">Action/observation/reward spec, baseline ladder, interfaces.</span></div>
+        <div class="doc-group-label">Living log — updated in place as work happens</div>
+        <div class="doc-row"><span class="doc-name">project-plan.md</span><span class="doc-desc">Milestone table — the canonical "what milestone are we on."</span></div>
+        <div class="doc-row"><span class="doc-name">implementation-status.md</span><span class="doc-desc">M1 validation checklist, item by item.</span></div>
+        <div class="doc-row"><span class="doc-name">environment.md</span><span class="doc-desc">Every install step and gotcha, in the order they were hit.</span></div>
+        <div class="doc-group-label">Reviews — dated audits, not continuously maintained</div>
+        <div class="doc-row"><span class="doc-name">wave-simulation-literature-review.md</span><span class="doc-desc">Paper-by-paper: how others actually model ocean waves.</span></div>
+        <div class="doc-row"><span class="doc-name">related-work-review.md</span><span class="doc-desc">Stress-tests H1's novelty claim against the closest prior work.</span></div>
+        <div class="doc-row"><span class="doc-name">engineering-review.md</span><span class="doc-desc">This session's SWE/reproducibility audit.</span></div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>opportunity-rl · MIT · snapshot 2026-08-14</span>
+    <span>Static board — re-render after material project changes, this file does not update itself.</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- Milestone depth-profile chart ---------------- */
+  var milestones = [
+    { id: "M0", label: "Bootstrap", status: "done" },
+    { id: "M1", label: "Simulation", status: "done" },
+    { id: "M2", label: "State pipeline", status: "done" },
+    { id: "M3", label: "Static grasp", status: "done" },
+    { id: "M4", label: "Dynamic env", status: "done" },
+    { id: "M5", label: "RL environment", status: "done" },
+    { id: "M6", label: "Standard RL", status: "done" },
+    { id: "M7", label: "Reactive bench", status: "done" },
+    { id: "M8", label: "Opportunity", status: "done" },
+    { id: "M9", label: "Opportunity RL", status: "done" },
+    { id: "M10", label: "Robustness", status: "done" },
+    { id: "M11", label: "Evaluation", status: "done" }
+  ];
+  (function drawDepthChart() {
+    var svg = document.getElementById("depthChart");
+    var ns = "http://www.w3.org/2000/svg";
+    var W = 1180, H = 210, padL = 34, padR = 20, padT = 14, padB = 34;
+    var n = milestones.length;
+    var stepX = (W - padL - padR) / (n - 1);
+    var maxDepth = H - padT - padB;
+    var pts = milestones.map(function (m, i) {
+      var depth = padT + (i / (n - 1)) * maxDepth;
+      return { x: padL + i * stepX, y: depth, m: m };
+    });
+
+    function colorFor(status) {
+      if (status === "done") return "var(--status-done)";
+      if (status === "progress") return "var(--status-progress)";
+      return "var(--ink-faint)";
+    }
+
+    var lastSoundedIdx = 0;
+    for (var i = 0; i < pts.length; i++) {
+      if (pts[i].m.status === "done" || pts[i].m.status === "progress") lastSoundedIdx = i;
+    }
+
+    var soundedPath = "M " + pts[0].x + " " + padT;
+    for (i = 0; i <= lastSoundedIdx; i++) soundedPath += " L " + pts[i].x + " " + pts[i].y;
+    var soundedFloor = soundedPath + " L " + pts[lastSoundedIdx].x + " " + H + " L " + pts[0].x + " " + H + " Z";
+
+    var unsoundedPath = "M " + pts[lastSoundedIdx].x + " " + pts[lastSoundedIdx].y;
+    for (i = lastSoundedIdx + 1; i < pts.length; i++) unsoundedPath += " L " + pts[i].x + " " + pts[i].y;
+
+    function el(tag, attrs) {
+      var e = document.createElementNS(ns, tag);
+      for (var k in attrs) e.setAttribute(k, attrs[k]);
+      return e;
+    }
+
+    svg.appendChild(el("path", { d: soundedFloor, fill: "var(--accent-soft)", stroke: "none" }));
+    svg.appendChild(el("path", { d: soundedPath, fill: "none", stroke: "var(--accent)", "stroke-width": 2 }));
+    svg.appendChild(el("path", { d: unsoundedPath, fill: "none", stroke: "var(--ink-faint)", "stroke-width": 1.5, "stroke-dasharray": "3 4" }));
+
+    pts.forEach(function (p) {
+      var r = p.m.status === "pending" ? 3.5 : 5;
+      svg.appendChild(el("circle", { cx: p.x, cy: p.y, r: r, fill: colorFor(p.m.status), stroke: "var(--bg-panel)", "stroke-width": 1.5 }));
+      var idLabel = el("text", { x: p.x, y: H - 16, "text-anchor": "middle", class: "mono", fill: "var(--ink)", "font-size": 12, "font-weight": 600 });
+      idLabel.textContent = p.m.id;
+      svg.appendChild(idLabel);
+      var subLabel = el("text", { x: p.x, y: H - 3, "text-anchor": "middle", fill: "var(--ink-faint)", "font-size": 9.5 });
+      subLabel.textContent = p.m.label;
+      svg.appendChild(subLabel);
+    });
+  })();
+
+  /* ---------------- Toy opportunity-window simulator ---------------- */
+  function mulberry32(seed) {
+    var s = seed >>> 0;
+    return function () {
+      s |= 0; s = (s + 0x6d2b79f5) | 0;
+      var t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+  function hypot2(dx, dy) { return Math.sqrt(dx * dx + dy * dy); }
+
+  function waveOffset(t, amps, pers, rng) {
+    var x = new Float64Array(t.length), y = new Float64Array(t.length);
+    for (var c = 0; c < amps.length; c++) {
+      var omega = (2 * Math.PI) / pers[c];
+      var px = rng() * 2 * Math.PI, py = rng() * 2 * Math.PI;
+      for (var i = 0; i < t.length; i++) {
+        x[i] += amps[c] * Math.cos(omega * t[i] + px);
+        y[i] += amps[c] * Math.sin(omega * t[i] + py);
+      }
+    }
+    return { x: x, y: y };
+  }
+  function gradient(px, py, dt) {
+    var n = px.length, vx = new Float64Array(n), vy = new Float64Array(n);
+    for (var i = 0; i < n; i++) {
+      if (i === 0) { vx[i] = (px[1] - px[0]) / dt; vy[i] = (py[1] - py[0]) / dt; }
+      else if (i === n - 1) { vx[i] = (px[n - 1] - px[n - 2]) / dt; vy[i] = (py[n - 1] - py[n - 2]) / dt; }
+      else { vx[i] = (px[i + 1] - px[i - 1]) / (2 * dt); vy[i] = (py[i + 1] - py[i - 1]) / (2 * dt); }
+    }
+    return { vx: vx, vy: vy };
+  }
+
+  function simulate(cfg, policy) {
+    var dt = 0.1, n = Math.floor(cfg.duration / dt) + 1;
+    var t = new Float64Array(n);
+    for (var i = 0; i < n; i++) t[i] = i * dt;
+
+    var vJ = waveOffset(t, cfg.vesselAmp, cfg.vesselPer, mulberry32(cfg.seed));
+    var vx = new Float64Array(n), vy = new Float64Array(n);
+    var rx = new Float64Array(n), ry = new Float64Array(n);
+    for (i = 0; i < n; i++) {
+      vx[i] = cfg.vesselDrift[0] * t[i] + vJ.x[i];
+      vy[i] = cfg.vesselDrift[1] * t[i] + vJ.y[i];
+      rx[i] = vx[i] + cfg.reachOffset[0];
+      ry[i] = vy[i] + cfg.reachOffset[1];
+    }
+
+    var theta = (cfg.approachDir * Math.PI) / 180;
+    var dirx = Math.cos(theta), diry = Math.sin(theta);
+    var tJ = waveOffset(t, cfg.targetAmp, cfg.targetPer, mulberry32(cfg.seed + 1000));
+    var tx = new Float64Array(n), ty = new Float64Array(n);
+    for (i = 0; i < n; i++) {
+      var radial = cfg.approachCenter + cfg.approachAmp * Math.cos((2 * Math.PI * t[i]) / cfg.approachPeriod);
+      tx[i] = rx[i] + radial * dirx + tJ.x[i];
+      ty[i] = ry[i] + radial * diry + tJ.y[i];
+    }
+
+    var tVel = gradient(tx, ty, dt), rVel = gradient(rx, ry, dt);
+    var distance = new Float64Array(n), relSpeed = new Float64Array(n), score = new Float64Array(n);
+    var good = new Uint8Array(n);
+    for (i = 0; i < n; i++) {
+      distance[i] = hypot2(tx[i] - rx[i], ty[i] - ry[i]);
+      relSpeed[i] = hypot2(tVel.vx[i] - rVel.vx[i], tVel.vy[i] - rVel.vy[i]);
+      var distTerm = sigmoid((cfg.reachRadius - distance[i]) / (0.25 * cfg.reachRadius));
+      var speedTerm = sigmoid((cfg.maxRelSpeed - relSpeed[i]) / (0.25 * cfg.maxRelSpeed));
+      score[i] = distTerm * speedTerm;
+      good[i] = distance[i] < cfg.reachRadius && relSpeed[i] < cfg.maxRelSpeed ? 1 : 0;
+    }
+
+    var state = new Array(n), events = [];
+    var cur = "WAIT", actStart = -1, resolvedAt = -1;
+    var horizonSteps = Math.max(1, Math.round(cfg.lookaheadHorizon / dt));
+    var flashHold = 1.0, graspDuration = cfg.graspDuration;
+
+    function isLocalPeak(idx) {
+      var end = Math.min(n, idx + horizonSteps);
+      var max = -Infinity;
+      for (var k = idx; k < end; k++) if (score[k] > max) max = score[k];
+      return score[idx] >= 0.95 * max;
+    }
+
+    for (i = 0; i < n; i++) {
+      if (cur === "SUCCESS" || cur === "ABORT") {
+        if (t[i] - t[resolvedAt] >= flashHold) cur = "WAIT";
+      }
+      if (cur === "WAIT") {
+        var shouldAct = !!good[i];
+        if (shouldAct && policy === "lookahead") shouldAct = isLocalPeak(i);
+        if (shouldAct) { cur = "ACT"; actStart = i; events.push([t[i], "commit"]); }
+      } else if (cur === "ACT") {
+        var elapsed = t[i] - t[actStart];
+        if (!good[i]) { cur = "ABORT"; resolvedAt = i; events.push([t[i], "abort"]); }
+        else if (elapsed >= graspDuration) { cur = "SUCCESS"; resolvedAt = i; events.push([t[i], "success"]); }
+      }
+      state[i] = cur;
+    }
+    return { t: t, tx: tx, ty: ty, rx: rx, ry: ry, score: score, state: state, events: events, reachRadius: cfg.reachRadius };
+  }
+
+  var stateColor = {
+    WAIT: "#8a9aa0",
+    ACT: "#e0a83e",
+    SUCCESS: "#4fae83",
+    ABORT: "#e2694a"
+  };
+
+  var els = {
+    reachRadius: document.getElementById("reachRadius"),
+    maxSpeed: document.getElementById("maxSpeed"),
+    approachAmp: document.getElementById("approachAmp"),
+    approachPeriod: document.getElementById("approachPeriod"),
+    seedInput: document.getElementById("seedInput"),
+    playBtn: document.getElementById("playBtn"),
+    regenBtn: document.getElementById("regenBtn"),
+    policyReactive: document.getElementById("policyReactive"),
+    policyLookahead: document.getElementById("policyLookahead"),
+    readout: document.getElementById("readout"),
+    topdown: document.getElementById("topdown"),
+    timeline: document.getElementById("timeline")
+  };
+
+  var policy = "reactive";
+  var playing = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var frame = 0;
+  var result = null;
+  var lastTs = 0;
+  var speedFramesPerSec = 12;
+
+  function currentConfig() {
+    return {
+      duration: 40,
+      seed: parseInt(els.seedInput.value, 10),
+      reachRadius: parseFloat(els.reachRadius.value),
+      maxRelSpeed: parseFloat(els.maxSpeed.value),
+      vesselDrift: [0.015, 0.008],
+      vesselAmp: [0.35, 0.18, 0.08],
+      vesselPer: [5.0, 3.1, 1.7],
+      reachOffset: [0.9, 0.3],
+      approachDir: 15,
+      approachCenter: parseFloat(els.reachRadius.value),
+      approachAmp: parseFloat(els.approachAmp.value),
+      approachPeriod: parseFloat(els.approachPeriod.value),
+      targetAmp: [0.06, 0.03],
+      targetPer: [2.6, 1.4],
+      graspDuration: 1.5,
+      lookaheadHorizon: 3.0
+    };
+  }
+
+  function syncLabels() {
+    document.getElementById("reachRadiusVal").textContent = parseFloat(els.reachRadius.value).toFixed(2) + " m";
+    document.getElementById("maxSpeedVal").textContent = parseFloat(els.maxSpeed.value).toFixed(2) + " m/s";
+    document.getElementById("approachAmpVal").textContent = parseFloat(els.approachAmp.value).toFixed(2) + " m";
+    document.getElementById("approachPeriodVal").textContent = parseFloat(els.approachPeriod.value).toFixed(1) + " s";
+    document.getElementById("seedVal").textContent = els.seedInput.value;
+  }
+
+  function regenerate() {
+    syncLabels();
+    result = simulate(currentConfig(), policy);
+    frame = 0;
+    var succ = 0, abrt = 0, firstCommit = null;
+    for (var k = 0; k < result.events.length; k++) {
+      if (result.events[k][1] === "success") succ++;
+      if (result.events[k][1] === "abort") abrt++;
+      if (result.events[k][1] === "commit" && firstCommit === null) firstCommit = result.events[k][0];
+    }
+    els.readout.innerHTML =
+      '<div class="line">successes <b>' + succ + "</b> · aborts <b>" + abrt + "</b></div>" +
+      '<div class="line">first commit <b>' +
+      (firstCommit !== null ? firstCommit.toFixed(1) + "s" : "—") +
+      "</b></div>";
+  }
+
+  function css(varName) {
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  }
+
+  function drawTopdown() {
+    var c = els.topdown, ctx = c.getContext("2d");
+    var w = c.width, h = c.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!result) return;
+    var xs = [], ys = [];
+    for (var i = 0; i < result.tx.length; i++) { xs.push(result.tx[i], result.rx[i]); ys.push(result.ty[i], result.ry[i]); }
+    var minX = Math.min.apply(null, xs) - 0.5, maxX = Math.max.apply(null, xs) + 0.5;
+    var minY = Math.min.apply(null, ys) - 0.5, maxY = Math.max.apply(null, ys) + 0.5;
+    var spanX = maxX - minX, spanY = maxY - minY;
+    var scale = Math.min((w - 20) / spanX, (h - 20) / spanY);
+    var offX = (w - spanX * scale) / 2 - minX * scale;
+    var offY = (h - spanY * scale) / 2 - minY * scale;
+    function px(x) { return x * scale + offX; }
+    function py(y) { return h - (y * scale + offY); }
+
+    ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px(result.rx[frame]), 0); ctx.lineTo(px(result.rx[frame]), h); ctx.stroke();
+
+    function path(arrX, arrY, upto, color) {
+      ctx.strokeStyle = color; ctx.globalAlpha = 0.55; ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      for (var i = 0; i <= upto; i++) {
+        var X = px(arrX[i]), Y = py(arrY[i]);
+        if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+      }
+      ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    path(result.rx, result.ry, frame, css("--accent"));
+    path(result.tx, result.ty, frame, "#8a5fb0");
+
+    ctx.strokeStyle = css("--accent"); ctx.setLineDash([4, 4]); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(px(result.rx[frame]), py(result.ry[frame]), result.reachRadius * scale, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = css("--accent");
+    ctx.fillRect(px(result.rx[frame]) - 4, py(result.ry[frame]) - 4, 8, 8);
+
+    ctx.fillStyle = stateColor[result.state[frame]];
+    ctx.beginPath(); ctx.arc(px(result.tx[frame]), py(result.ty[frame]), 6, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function drawTimeline() {
+    var c = els.timeline, ctx = c.getContext("2d");
+    var w = c.width, h = c.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!result) return;
+    var n = result.t.length, duration = result.t[n - 1];
+    function px(t) { return (t / duration) * (w - 20) + 10; }
+    function py(s) { return h - 22 - s * (h - 40); }
+
+    for (var i = 0; i < n; i++) {
+      ctx.fillStyle = stateColor[result.state[i]];
+      ctx.globalAlpha = 0.18;
+      ctx.fillRect(px(result.t[i]), 6, Math.max(1, (w - 20) / n), h - 28);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(10, py(0.5)); ctx.lineTo(w - 10, py(0.5)); ctx.stroke();
+
+    ctx.strokeStyle = css("--ink"); ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    for (i = 0; i <= frame; i++) {
+      var X = px(result.t[i]), Y = py(result.score[i]);
+      if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = "#c0392b"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px(result.t[frame]), 6); ctx.lineTo(px(result.t[frame]), h - 22); ctx.stroke();
+
+    ctx.fillStyle = css("--ink-faint");
+    ctx.font = "10px " + css("--font-mono");
+    ctx.fillText("t=" + result.t[frame].toFixed(1) + "s", 10, h - 8);
+  }
+
+  function tick(ts) {
+    if (playing && result) {
+      if (ts - lastTs > 1000 / speedFramesPerSec) {
+        frame = (frame + 1) % result.t.length;
+        lastTs = ts;
+      }
+    }
+    drawTopdown();
+    drawTimeline();
+    requestAnimationFrame(tick);
+  }
+
+  els.playBtn.addEventListener("click", function () {
+    playing = !playing;
+    els.playBtn.textContent = playing ? "Pause" : "Play";
+  });
+  els.regenBtn.addEventListener("click", regenerate);
+  [els.reachRadius, els.maxSpeed, els.approachAmp, els.approachPeriod, els.seedInput].forEach(function (input) {
+    input.addEventListener("input", regenerate);
+  });
+  els.policyReactive.addEventListener("click", function () {
+    policy = "reactive";
+    els.policyReactive.classList.add("active");
+    els.policyLookahead.classList.remove("active");
+    regenerate();
+  });
+  els.policyLookahead.addEventListener("click", function () {
+    policy = "lookahead";
+    els.policyLookahead.classList.add("active");
+    els.policyReactive.classList.remove("active");
+    regenerate();
+  });
+
+  els.playBtn.textContent = playing ? "Pause" : "Play";
+  regenerate();
+  requestAnimationFrame(tick);
+})();
+</script>

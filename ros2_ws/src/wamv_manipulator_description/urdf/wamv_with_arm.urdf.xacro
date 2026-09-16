@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<!--
+  WAM-V + Panda manipulator, combined by inclusion only: neither
+  upstream xacro file is modified. Intended to be passed to VRX's own
+  spawn tooling via the existing urdf:= launch argument (see
+  vrx_gz/src/vrx_gz/model.py's xacro_cmd(), which always runs
+  "xacro <urdf> namespace:=<name> locked:=true vrx_sensors_enabled:=true
+  thruster_config:=H" regardless of which urdf file is given), so no new
+  launch file is needed. See docs/project-plan.md Milestone M1.
+-->
+<robot name="wamv_with_arm" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find wamv_gazebo)/urdf/wamv_gazebo.urdf.xacro"/>
+  <xacro:include filename="$(find moveit_resources_panda_description)/urdf/panda.urdf.xacro"/>
+  <xacro:include filename="$(find wamv_manipulator_description)/urdf/panda_gz_ros2_control.xacro"/>
+
+  <!--
+    Mount point: WAM-V's deck plate ("top_base" collision box in
+    wamv_description/urdf/wamv_base.urdf.xacro) is 1.85 x 1.0 x 0.1 m,
+    centered at (0, 0, 1.25), so its top surface is at z=1.3, spanning
+    roughly x in [-0.93, 0.93], y in [-0.5, 0.5]. The arm is placed
+    toward the bow (+x) and offset to starboard (+y) to clear the
+    existing sensor mast, which sits at y in [-0.45, -0.1] (front/middle
+    cameras, lidar).
+  -->
+  <joint name="manipulator_mount_joint" type="fixed">
+    <parent link="${namespace}/base_link"/>
+    <child link="panda_link0"/>
+    <origin xyz="0.85 0.35 1.3" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:panda_gz_ros2_control
+      name="panda_arm_system"
+      initial_positions_file="$(find moveit_resources_panda_moveit_config)/config/initial_positions.yaml"/>
+  <xacro:panda_hand_gz_ros2_control name="panda_hand_system"/>
+
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(find moveit_resources_panda_moveit_config)/config/ros2_controllers.yaml</parameters>
+      <robot_param>robot_description</robot_param>
+      <robot_param_node>robot_state_publisher</robot_param_node>
+      <ros>
+        <remapping>robot_description:=/${namespace}/robot_description</remapping>
+      </ros>
+    </plugin>
+  </gazebo>
+
+  <!--
+    Milestone M3 grasp mechanism: a scripted "magnetic latch" attach, per
+    the project directive's Section 7 (grasp success is a deterministic
+    check plus a scripted attach, not physical finger contact dynamics;
+    DART cannot build collision geometry from the Panda's stock meshes
+    anyway, see docs/implementation-status.md's M1 validation notes).
+    child_model/child_link are not required to exist at spawn time
+    (suppress_child_warning, matching the same pattern VRX's own
+    wamv_gazebo.urdf.xacro already uses for its platform-lock mechanism):
+    this lets the target object be spawned separately, or even chosen
+    at runtime in a later milestone, without needing to respawn the arm.
+
+    parent_link is panda_link7, not panda_hand: verified by inspecting
+    the actual generated SDF (gz sdf -p on the xacro'd URDF) that
+    panda_hand/panda_link8 get fixed-joint-lumped into panda_link7
+    during URDF to SDF conversion, so panda_hand survives only as a pose
+    <frame>, not an actual dynamics <link> a joint can attach to. Using
+    "panda_hand" here fails silently at plugin init ("Link with name
+    panda_hand not found in model wamv"). panda_link7 is the correct,
+    rigidly-equivalent attachment link (panda_hand is fixed relative to
+    it, so there is no physical difference).
+  -->
+  <gazebo>
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>panda_link7</parent_link>
+      <child_model>grasp_target</child_model>
+      <child_link>link</child_link>
+      <topic>/wamv/grasp/release</topic>
+      <suppress_child_warning>true</suppress_child_warning>
+    </plugin>
+  </gazebo>
+
+</robot>

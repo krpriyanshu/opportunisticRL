@@ -1,0 +1,51 @@
+# Default disturbance condition, matching (as closely as the fast
+# surrogate model reasonably can -- see docs/rl-formulation.md's
+# curriculum section) the sydney_regatta world's actual default wave
+# settings verified from source in docs/wave-simulation-literature-review.md
+# Section 0: model=PMS (Pierson-Moskowitz, NOT JONSWAP -- see that
+# doc's correction of several secondary sources that get this wrong),
+# 3 components, scale=1.1, angle=0.4 rad, gain=0.3, period=5.0s,
+# direction=0.0, steepness=0.0 (pure heave, no horizontal Gerstner
+# displacement -- this is what sydney_regatta.sdf's own
+# vrx::PublisherPlugin block actually sets, not a simplification made
+# here).
+#
+# This is the *first* disturbance config (Milestone M4) -- curriculum
+# stages with higher severity (M10's robustness sweep) are added as
+# additional named files here, never by editing this one's numbers in
+# place once experiments reference it by name.
+
+vessel_wave:
+  model: PMS
+  number: 3
+  scale: 1.1
+  angle: 0.4
+  steepness: 0.0
+  amplitude: 0.0 # only used by CWR, irrelevant for PMS
+  period: 5.0
+  phase: 0.0
+  direction: 0.0
+  gain: 0.3
+  tau: 2.0
+
+# Target: a small floating object independently drifting near the
+# vessel, with its own (smaller, since it's a lighter body) wave
+# response. Numeric choices here are a first, documented starting point
+# for M4 -- not claimed to be measured/calibrated against any real
+# object, since no such reference exists for this project's invented
+# target.
+target:
+  start_position: [1.2, 0.5, 1.6] # vessel-relative-ish starting offset, meters
+  drift_velocity: [0.0, 0.0, 0.0] # m/s; nonzero in a "moving target" curriculum stage
+  wave:
+    model: PMS
+    number: 2
+    scale: 1.1
+    angle: 0.3
+    steepness: 0.2
+    amplitude: 0.0
+    period: 4.0
+    phase: 0.0
+    direction: 0.0
+    gain: 0.15
+    tau: 2.0

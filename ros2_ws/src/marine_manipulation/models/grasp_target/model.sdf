@@ -1,0 +1,53 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <model name="grasp_target">
+    <!-- M3: a small graspable object. Deliberately world-fixed in
+         position rather than resting on or attached to the vessel:
+         M3's scope is proving the plan, execute, and attach pipeline
+         works at all, not yet solving realistic object placement under
+         vessel motion (that is genuinely M4's point, not a shortcut
+         being hidden here; see docs/implementation-status.md's M3
+         section). Consequence, documented not hidden: this target will
+         drift out of reach if the vessel itself drifts or rotates far
+         from its pose at spawn time, so a grasp attempt against it must
+         happen reasonably soon after spawning it.
+
+         Not <static>true</static>, even though the object does not
+         move on its own: verified empirically that DART cannot attach
+         a DetachableJoint to a fully static link (no dynamics state to
+         constrain at all), so the target must be a real dynamics body.
+         "World-fixed" is instead achieved with <gravity>false</gravity>
+         on the link, which holds it motionless (no forces act on it)
+         while still being a dynamic body a joint can rigidly attach to
+         once grasped. -->
+    <link name="link">
+      <gravity>false</gravity>
+      <inertial>
+        <mass>0.05</mass>
+        <inertia>
+          <ixx>0.00002</ixx>
+          <iyy>0.00002</iyy>
+          <izz>0.00002</izz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <box>
+            <size>0.06 0.06 0.06</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.85 0.25 0.15 1</ambient>
+          <diffuse>0.85 0.25 0.15 1</diffuse>
+        </material>
+      </visual>
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.06 0.06 0.06</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

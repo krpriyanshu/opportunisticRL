@@ -1,0 +1,55 @@
+# MILD severity variant of moving_target (target CWR amplitude 0.08).
+# One rung of the M10 robustness-severity ladder; see
+# docs/implementation-status.md M10. Header below is moving_target's: the target
+# bobs with enough amplitude/speed that it is only intermittently
+# graspable (good_opportunity true ~34% of the time in steady state,
+# measured -- vs 100% under the default config, where timing is
+# irrelevant and even a random policy succeeds). This is what makes the
+# *timing* decision matter, and is the condition M6's B2 baseline is
+# actually validated against (see docs/implementation-status.md's M6
+# section for why the default config was too easy to demonstrate
+# learning).
+#
+# The target uses the CWR wave model (constant wavelength-to-amplitude
+# ratio) with an explicit amplitude, rather than PMS: PMS at
+# VRX-realistic gains produces sub-centimeter target motion (~0.006 m
+# amplitude), far too small to move the target out of the
+# good-opportunity window. CWR with amplitude 0.12 m gives ~0.72 m/s peak
+# relative speed -- crossing the 0.3 m/s feasibility threshold
+# intermittently, so the target is graspable only near the low-speed
+# turning points of its oscillation (the same "pendulum is slowest at the
+# ends of its swing" dynamic the toy visualizer in
+# scripts/visualize_opportunity_concept.py illustrates). This is a
+# deliberately less physically-grounded choice than the default's
+# source-matched PMS -- it trades fidelity for a controllable difficulty
+# knob, which is the honest thing to want from a curriculum/robustness
+# config, and is flagged as such rather than presented as realistic.
+
+vessel_wave:
+  model: PMS
+  number: 3
+  scale: 1.1
+  angle: 0.4
+  steepness: 0.0
+  amplitude: 0.0
+  period: 5.0
+  phase: 0.0
+  direction: 0.0
+  gain: 0.3
+  tau: 2.0
+
+target:
+  start_position: [1.2, 0.5, 1.6]
+  drift_velocity: [0.0, 0.0, 0.0]
+  wave:
+    model: CWR
+    number: 2
+    scale: 1.1
+    angle: 0.3
+    steepness: 0.5
+    amplitude: 0.08
+    period: 2.5
+    phase: 0.0
+    direction: 0.0
+    gain: 1.0
+    tau: 2.0
