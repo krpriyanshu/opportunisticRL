@@ -1,5 +1,7 @@
 # Opportunity-Aware Reinforcement Learning for Dynamic Grasping under Marine Disturbance
 
+[![CI](https://github.com/kushagrathisside/opportunisticRL/actions/workflows/ci.yml/badge.svg)](https://github.com/kushagrathisside/opportunisticRL/actions/workflows/ci.yml)
+
 A controlled study of whether giving a reinforcement-learning policy an explicit representation of *future interaction opportunity* improves its grasp-timing decisions, relative to an otherwise-identical policy that reacts only to the current instant.
 
 The setting is a manipulator mounted on a wave-disturbed vessel, grasping an independently moving target. Marine simulation is infrastructure, not the object of study: wave- and current-driven disturbance is a physically natural, configurable source of the temporal structure the research question concerns.
