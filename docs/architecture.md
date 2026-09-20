@@ -1,207 +1,103 @@
-# Architecture
+# System Architecture
 
-This document describes the layered system architecture, the boundary
-between languages/frameworks, and — critically — the confound register that
-must be checked before any comparison between baselines is reported as
-research evidence. See [research-question.md](research-question.md) for the
-question this architecture exists to let us answer, and
-[project-plan.md](project-plan.md) for how it will be built up milestone by
-milestone.
+This document describes the layered architecture, the boundaries between languages and frameworks, and the confound register that governs whether a comparison between baselines may be reported as research evidence. See [research-question.md](research-question.md) for the question the architecture exists to answer and [project-plan.md](project-plan.md) for the order in which it was built.
 
-## Layered view
+## 1. Layered view
+
+The system is organised into four layers, each depending only on the layer directly below it through a narrow, named interface.
 
 ```text
-┌───────────────────────────────────────────────┐
-│              RESEARCH / RL LAYER               │
-│  reactive RL · temporal RL · opportunity-aware │
-│  src/opportunity_rl/{envs,policies,algorithms, │
-│  opportunity,rewards,evaluation}               │
-└───────────────────────┬───────────────────────┘
-                         │  DynamicGraspEnv (Gymnasium API)
-┌───────────────────────▼───────────────────────┐
-│             TASK / ENVIRONMENT LAYER           │
-│  dynamic target · vessel motion · disturbance  │
-│  grasp opportunity · reward · termination      │
-│  src/opportunity_rl/{envs,disturbances}        │
-└───────────────────────┬───────────────────────┘
-                         │  SimulationInterface (Section 21)
-┌───────────────────────▼───────────────────────┐
-│              ROBOTICS / ROS2 LAYER             │
-│  state estimation · TF2 · manipulation ·       │
-│  controller · policy node                      │
-│  ros2_ws/src/{marine_state_estimator,          │
-│  marine_rl_policy,marine_manipulation}         │
-└───────────────────────┬───────────────────────┘
-                         │
-┌───────────────────────▼───────────────────────┐
-│              SIMULATION / PHYSICS LAYER        │
-│  Gazebo / marine environment · vessel dynamics │
-│  robot · target · sensors                      │
-│  ros2_ws/src/marine_sim_bringup                │
-└───────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│  RESEARCH / RL LAYER                                     │
+│  baseline ladder · opportunity estimator · training      │
+│  src/opportunity_rl/{algorithms,opportunity}             │
+└───────────────────────────┬─────────────────────────────┘
+                            │  DynamicGraspEnv (Gymnasium API)
+┌───────────────────────────▼─────────────────────────────┐
+│  TASK / ENVIRONMENT LAYER                                │
+│  observation schema · reward · episode termination       │
+│  src/opportunity_rl/env                                  │
+└───────────────────────────┬─────────────────────────────┘
+                            │  SimulationInterface (Protocol)
+┌───────────────────────────▼─────────────────────────────┐
+│  ROBOTICS / ROS2 LAYER                                   │
+│  state estimation · TF2 · MoveIt2 grasp pipeline         │
+│  ros2_ws/src/{marine_state_estimator,marine_manipulation,│
+│  wamv_manipulator_description,wamv_manipulator_moveit_   │
+│  config}                                                 │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────┐
+│  SIMULATION / PHYSICS LAYER                              │
+│  Gazebo Harmonic · VRX marine environment · WAM-V        │
+│  fetched via ros2_ws/vrx.repos (not vendored)            │
+└─────────────────────────────────────────────────────────┘
 ```
 
-Each layer only depends on the layer directly below it through the
-narrow interface named on the connecting arrow. In particular, the RL
-layer never imports ROS2 or simulator-specific types — it depends only on
-`DynamicGraspEnv`, a plain [Gymnasium](https://gymnasium.farama.org/)
-environment. This is what Section 23 calls the "offline RL environment"
-requirement, and it is the single most important structural decision in
-this codebase: **training must be able to run without ROS2 or Gazebo in
-the loop.** ROS2/Gazebo are one *implementation* of `SimulationInterface`,
-used for integration testing and evaluation under the real state-estimation
-and control stack, not for every training step.
+The RL layer never imports ROS2 or simulator-specific types; it depends only on `DynamicGraspEnv`, a plain [Gymnasium](https://gymnasium.farama.org/) environment. This is the single most important structural decision in the codebase: **training must be able to run without ROS2 or Gazebo in the loop.** ROS2 and Gazebo constitute one *implementation* of `SimulationInterface`, intended for integration testing and evaluation under the real state-estimation and control stack, not for every training step.
+
+## 2. The two-backend design
 
 ```text
-                     ┌────────────────────┐
-                     │   DynamicGraspEnv   │
-                     │  (Gymnasium API)     │
-                     └──────────┬──────────┘
-                                │  SimulationInterface
-                 ┌──────────────┴──────────────┐
-                 │                              │
-        ┌────────▼────────┐          ┌──────────▼──────────┐
-        │  Fast kinematic   │          │  ROS2 + Gazebo       │
-        │  simulator         │          │  execution           │
-        │  (training path,   │          │  (integration /      │
+                      ┌──────────────────────┐
+                      │   DynamicGraspEnv     │
+                      │   (Gymnasium API)     │
+                      └───────────┬──────────┘
+                                  │  SimulationInterface
+                  ┌───────────────┴───────────────┐
+        ┌─────────▼─────────┐          ┌──────────▼──────────┐
+        │  Fast kinematic    │          │  ROS2 + Gazebo       │
+        │  backend           │          │  execution           │
+        │  (training path,   │          │  (integration and    │
         │  pure Python)      │          │  evaluation path)    │
+        │  IMPLEMENTED       │          │  NOT IMPLEMENTED     │
         └────────────────────┘          └──────────────────────┘
 ```
 
-Both implementations satisfy the exact same `SimulationInterface`
-(`reset`, `step`, `get_robot_state`, `get_target_state`,
-`get_environment_state`, `apply_action`), so `DynamicGraspEnv` code is
-identical regardless of which backend is plugged in. This lets us validate
-the RL research question quickly on the fast backend, then confirm
-consistency on the ROS2/Gazebo backend, without duplicating environment,
-reward, or opportunity logic. Reward and opportunity computation live in
-the task layer, never inside either `SimulationInterface` implementation —
-per Section 22, the simulator must never contain RL-specific reward logic.
+`SimulationInterface` is a real `typing.Protocol` (`src/opportunity_rl/sim/interface.py`) with methods `reset`, `step`, `get_robot_state`, `get_target_state`, `get_environment_state` and `apply_action`, so mypy verifies conformance structurally rather than by assertion. `DynamicGraspEnv` is identical regardless of which backend is supplied.
 
-## Python / C++ and ROS2 / MoveIt2 boundary
+**Only the fast backend exists.** The ROS2/Gazebo backend satisfying the same interface was deliberately deferred and never built; the ROS2 layer was validated independently for state estimation and for a scripted grasp against a static target, but no policy has been trained or evaluated through it. This is the principal architectural limitation of the work and is recorded as a threat to validity in [evaluation.md §9](evaluation.md#9-threats-to-validity-and-conditions-for-citing-these-results).
 
-Python is used for everything in the RL and task layers, and for the
-ROS2 nodes in the robotics layer that do not need hard real-time
-performance (state estimator, RL policy node, manipulation manager).
-C++ is used only where ROS2/simulator integration genuinely benefits —
-e.g. if a future controller loop needs tighter timing than `rclpy` can
-reliably provide. No C++ exists yet, and none is planned before that
-concrete need arises (Section 32).
+Reward and opportunity computation live in the task layer, never inside a `SimulationInterface` implementation. The simulator tracks the physical fact of whether the gripper holds the target; whether that constitutes *success* is a task-layer decision. The separation is verified by construction — the simulator imports no reward code.
 
-MoveIt2 and existing ROS2 controller packages are used for trajectory
-generation, IK, and low-level control (Section 7). No novel low-level
-grasp controller, IK solver, or physics engine will be implemented in this
-repository (Section 3, "explicitly out of scope"). The RL policy's action
-space stops at the high-level decision (`WAIT` / `APPROACH` /
-`ATTEMPT_GRASP` / `ABORT`, Section 6) and hands off to
-`marine_manipulation`, which is conventional robotics code.
+## 3. Language and framework boundaries
 
-## Confound register
+Python is used throughout the RL and task layers, and for the ROS2 nodes that do not require hard real-time performance. No C++ exists in this repository, and none is planned until a concrete need arises, such as a controller loop requiring tighter timing than `rclpy` provides.
 
-This is a living checklist, not prose. Section 38 and 39 of the project
-ticket name specific ways an experiment comparing baselines can produce a
-result that looks like evidence but isn't. Every item must be either
-**resolved** (with a note on how) or **explicitly accepted and documented**
-before a result from that comparison is used to update
-[research-question.md](research-question.md). Do not silently work around
-a confound by changing the comparison without recording it here.
+MoveIt2 and existing ROS2 controller packages provide trajectory generation, inverse kinematics, and low-level control. No novel low-level grasp controller, IK solver, or physics engine is implemented here. The RL policy's action space terminates at the high-level decision — `WAIT`, `APPROACH`, `ATTEMPT_GRASP`, `ABORT` — and hands off to `marine_manipulation`, which is conventional robotics code.
 
-| # | Confound | Status | Notes |
-|---|----------|--------|-------|
-| 1 | Opportunity-aware policy receives more *unrelated* state than reactive policy | Open — resolves at M8/M9 | The two policies must differ only in the opportunity signal itself, not in incidental extra observation fields. Enforced by construction: both read from the same `Observation` schema (Section 8); the opportunity-aware policy adds exactly the `OpportunityEstimator` output on top. |
-| 2 | Different action frequencies between policies | Open — resolves at M5 | All policies compared under H1 must be stepped at the same decision rate. Will be fixed as a single `decision_period` env config value shared across baselines. |
-| 3 | Different controller capabilities between methods | Open — resolves at M3/M7 | All methods hand off to the same `marine_manipulation` stack (Section 7). No baseline gets a different or enhanced controller. |
-| 4 | Different training disturbance distributions | Open — resolves at M9/M10 | Enforced via shared `configs/disturbances/*.yaml` files referenced by name from each experiment config, not redefined per-experiment. |
-| 5 | Different compute budgets per algorithm | Open — resolves at M9 | Total environment steps (not wall-clock) will be matched across compared runs and recorded in experiment metadata. |
-| 6 | Reward differs between baselines | Open — resolves at M6/M9 | One shared reward function (Section 16) parameterized by config, not reimplemented per baseline. |
-| 7 | Opportunity estimator leaks future ground truth into the online policy | Open — resolves at M8 | The deterministic opportunity estimator (Section 10) and any learned successor may only consume information available at decision time (current state + history + short-horizon *estimate*, never the simulator's true future trajectory). The oracle baseline (Section 27) is the only component permitted to read true future state, and it is never used as a policy input — only as an evaluation reference. See Section 39. |
-| 8 | Simulator state exposed to one method but not another | Open — resolves at M5 | All policies read observations exclusively through the same `Observation` schema produced by `DynamicGraspEnv`; no baseline gets direct simulator/backend access. |
+## 4. Confound register
 
-"Open — resolves at M*" means the milestone whose Definition of Done
-should make the confound structurally impossible to reintroduce (e.g. by
-having only one reward implementation rather than one-per-baseline). This
-table will be revisited at the start of every milestone from M5 onward and
-updated in place; entries are never deleted, only marked resolved with a
-dated note, so the history of how each confound was actually addressed
-stays visible.
+A comparison between baselines is admissible as evidence only if every item below is either resolved, with a stated mechanism, or explicitly accepted and documented. The register is the operational form of the requirement in [research-question.md §4](research-question.md#4-criteria-for-support-and-rejection) that a comparison contaminated by an uncorrected confound be reported as inconclusive rather than folded into a verdict.
 
-## Simulator selection (Milestone M1 decision, recorded now per Section 51.7)
+Each item is resolved *structurally* wherever possible — that is, by making the confound impossible to reintroduce (one shared implementation rather than one per baseline), not by policing it in review.
 
-The ticket's assumption suggests ROS2-compatible Gazebo with a maritime
-environment such as VRX. This has been checked against the actual
-environment this repository is being built in, not assumed:
+| # | Confound | Status | Mechanism |
+|---|---|---|---|
+| 1 | Opportunity-aware policy receives more *unrelated* state than the reactive policy | **Resolved** | Both policies read the same `BASE_FIELDS` schema; the opportunity signal is appended as a separate block (`append_opportunity`), never interleaved. The two envs are built by one code path with and without the estimator, and a unit test asserts the base blocks are byte-identical across steps. |
+| 2 | Different action frequencies between policies | **Resolved** | A single `decision_period_s` configuration value; the env advances the simulator by exactly that amount per env-step, so every baseline is stepped at the same decision rate by construction. |
+| 3 | Different controller capabilities between methods | **Resolved on the fast backend** | All baselines act through the same shared manipulator proxy and the same feasibility predicate. On the ROS2 backend all methods would hand off to the same `marine_manipulation` stack, but no baseline has been run there. |
+| 4 | Different training disturbance distributions | **Resolved** | Named configurations in `configs/disturbances/*.yaml`, referenced by name from each experiment rather than redefined per experiment. An unknown name fails loudly rather than falling back to defaults, so a run's configuration claim stays trustworthy. |
+| 5 | Different compute budgets per algorithm | **Resolved** | Total environment steps, not wall-clock time, are matched across compared runs and recorded in each run's metadata. |
+| 6 | Reward differs between baselines | **Resolved** | One shared `reward.compute_reward`, parameterised by config, returning each term separately for failure analysis. Heuristic baselines do not consume the reward at decision time but their episodes are scored with it, so metrics remain comparable. |
+| 7 | Opportunity estimator leaks future ground truth into the online policy | **Resolved** | The estimator is called with current state only; the env holds no future state, so leakage is structurally impossible rather than merely prohibited. The estimator reads current and one-step-past velocity and extrapolates. The oracle reference is the only component permitted to read true future state, and it is not implemented. |
+| 8 | Simulator state exposed to one method but not another | **Resolved** | All policies read observations exclusively through the `Observation` schema produced by `DynamicGraspEnv`; no baseline receives direct backend access. |
 
-- ROS2 **Jazzy Jalisco** is installed (`/opt/ros/jazzy`), which targets
-  Ubuntu 24.04 and pairs with **Gazebo Harmonic** (`gz-sim`), not Gazebo
-  Classic (EOL, unsupported on Jazzy).
-- **Verified 2026-08-10: Gazebo Harmonic is installed and working.**
-  `sudo apt-get install ros-jazzy-ros-gz` (run by the user, since it
-  requires elevated privileges this agent does not have interactive
-  access to) pulled in ROS Jazzy's *vendor* packages
-  (`ros-jazzy-gz-sim-vendor` et al.), which build/ship Gazebo Harmonic
-  inside the ROS install prefix rather than via the separate OSRF apt
-  repo. Confirmed with `gz sim --version` → `Gazebo Sim, version 8.11.0`
-  (gz-sim8 = the Harmonic release train) once `/opt/ros/jazzy/setup.bash`
-  is sourced (it sets `PATH`/`GZ_CONFIG_PATH`; the `gz` binary itself
-  lives at `/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz` and is not on PATH
-  otherwise). The separate OSRF `packages.osrfoundation.org` apt repo was
-  also added during install but turned out to not be strictly necessary —
-  left in place as it's harmless and may be needed for optional gz
-  packages later.
-- **VRX (Virtual RobotX)** is the leading candidate for the maritime/USV
-  environment, as it is the standard ROS2 + Gazebo maritime simulation
-  stack and provides a USV platform (WAM-V) plus wave/current disturbance
-  models that match Section 14 directly. It has no apt package (confirmed
-  via `apt-cache search vrx` — empty) and must be built from source. Its
-  exact compatibility with Gazebo Harmonic + ROS2 Jazzy in this specific
-  environment (build success, runtime behavior) is being verified now as
-  the next concrete M1 step; result recorded in `docs/environment.md`.
-- VRX does not ship a manipulator. Mounting a manipulator on the WAM-V
-  hull and choosing that manipulator's URDF is a Milestone M1/M3 decision,
-  currently leaning toward a small custom-authored URDF (a few-DOF arm
-  sized to the WAM-V deck) rather than importing a full industrial-arm
-  package, to avoid pulling in hardware-specific drivers and complexity
-  that this project does not need (Section 3: no novel low-level
-  controller, but also no reason to import one designed for unrelated
-  hardware). This is not finalized; it will be finalized once M1's
-  simulation environment exists and the deck geometry is known.
+Two qualifications apply to the register as a whole. First, resolution of items 1–8 establishes that the *comparison* is sound; it says nothing about whether the *measurements* are trustworthy, and they are currently not, for the provenance reasons in [evaluation.md §2](evaluation.md#2-provenance-and-status-of-the-evidence). Second, item 3 is resolved only on the backend that was actually used.
 
-Milestone M0 (bootstrap) did not require a simulator — it validated the
-Python/ROS2 tooling only. M1 is now attempting the VRX build; if it is
-infeasible in this environment (network restrictions, package conflicts,
-resource limits), that failure and the fallback chosen will be documented
-here rather than silently substituted. Candidate fallbacks, in order, if
-VRX is infeasible: (a) a hand-built minimal Gazebo Harmonic world with a
-manually-authored buoyant vessel plugin and a simplified wave/current
-disturbance model applied directly as forces (more implementation work,
-full control, no dependency on VRX's release cadence), (b) an older
-Gazebo/VRX combination pinned to whatever ROS2 distribution it actually
-supports, run instead of Jazzy if necessary (would require reinstalling
-ROS2, a larger and more disruptive change).
+## 5. Simulator selection
 
-Because this is a system-level install (`apt`, elevated privileges,
-multi-GB download, and — in the fallback case — a possible ROS2
-distribution change), it will not be performed autonomously without
-checking in first; see `docs/project-plan.md` for the M1 entry criteria.
+The requirement was a ROS2-compatible simulator with a maritime environment. The selection was made against the environment as it actually exists rather than against documentation.
 
-**Wave-model literature review.** A rigorous, paper-by-paper survey of
-how other marine-robotics simulators and papers actually model ocean
-waves — including a precise, source-verified account of what this
-project's own installed VRX wave model does (Pierson-Moskowitz, not
-JONSWAP as some secondary sources claim) — is in
-[docs/wave-simulation-literature-review.md](wave-simulation-literature-review.md).
-Directly informs the disturbance-severity knobs available for M4.
+1. **ROS2 Jazzy Jalisco** was already installed, which targets Ubuntu 24.04 and pairs with **Gazebo Harmonic** (`gz-sim`) rather than the end-of-life Gazebo Classic.
+2. **Gazebo Harmonic 8.11.0** was installed and verified (`gz sim --version`). It arrived through ROS Jazzy's vendor packages (`ros-jazzy-gz-sim-vendor` and related), which build Gazebo inside the ROS install prefix rather than through the separate OSRF apt repository. The `gz` binary is not on `PATH` unless `/opt/ros/jazzy/setup.bash` is sourced.
+3. **VRX (Virtual RobotX)** was selected for the maritime environment: it is the standard ROS2 and Gazebo maritime stack and supplies a USV platform (WAM-V) together with wave and current disturbance models. It has no apt package and was built from source at the `jazzy` branch pinned in `ros2_ws/vrx.repos`.
+4. **VRX ships no manipulator.** A Franka Emika Panda was mounted on the WAM-V deck via a single fixed joint, using the description package MoveIt2 maintains for its own tutorials and CI. The rationale and the rejected alternative are recorded in [implementation-status.md](implementation-status.md#2-manipulator-selection).
 
-## Coordinate and unit conventions (finalized at M2)
+A paper-by-paper survey of how marine-robotics simulators model ocean waves, including a source-verified account of what this project's VRX installation actually implements (Pierson-Moskowitz, not JONSWAP as some secondary sources state), is in [wave-simulation-literature-review.md](wave-simulation-literature-review.md). It directly informed the disturbance-severity parameters.
 
-Full TF2 frame tree, coordinate conventions, units, and the
-`marine_state_estimator` topic contract are documented in
-[docs/ros2.md](ros2.md). Headline finding worth surfacing here since it
-affects every layer above the ROS2 one: **this simulation has no
-world-fixed TF2 frame at all** — `wamv/wamv/base_link` is the TF root,
-and the vessel's world-frame pose is only obtainable via a Gazebo
-Transport workaround (see `docs/ros2.md`), not standard ROS2 TF2. The
-vessel-*relative* frame (not world) is therefore the practically load-bearing
-reference frame for this project — matches `rl-formulation.md`'s
-`ee_pose (7) ... vessel-base frame` observation field, which was
-specified before this was confirmed and turned out to be the right call.
+## 6. Coordinate and unit conventions
+
+The full TF2 frame tree, coordinate conventions, units, and the `marine_state_estimator` topic contract are documented in [ros2.md](ros2.md). One finding affects every layer above the ROS2 one and is therefore surfaced here: **this simulation contains no world-fixed TF2 frame.** `wamv/wamv/base_link` is the root of the TF tree, and the vessel's world-frame pose is obtainable only through a Gazebo Transport workaround, not through standard ROS2 TF2.
+
+The practical consequence is that the vessel-relative frame, not any world frame, is the load-bearing reference frame for this project. This matches the `ee_pose` observation field's specification in vessel-base coordinates, which was fixed before the frame situation was established and proved to be the correct choice.

@@ -1,306 +1,139 @@
-# Opportunity-Aware RL for Dynamic Robotic Grasping in a Disturbed Marine Environment
+# Opportunity-Aware Reinforcement Learning for Dynamic Grasping under Marine Disturbance
 
-**Status: Milestones M0–M11 built and validated on the fast backend —
-the research question has an executed, honestly-reported answer.** The
-full stack runs end-to-end: a Gerstner/Pierson-Moskowitz marine
-disturbance ported from VRX, a dynamic target, a Gymnasium
-`DynamicGraspEnv`, the full baseline ladder (B0/B1 heuristics, B2 reactive
-PPO, B4 opportunity-aware PPO), a leakage-safe analytic opportunity
-estimator, and a matched controlled H1 comparison across seeds and
-disturbance severities. Earlier milestones (M1–M3) validated the real
-ROS2 + Gazebo + VRX + MoveIt2 stack and a rigid scripted grasp.
+A controlled study of whether giving a reinforcement-learning policy an explicit representation of *future interaction opportunity* improves its grasp-timing decisions, relative to an otherwise-identical policy that reacts only to the current instant.
 
-**The H1 result is nuanced, not a clean win** (and reported as such):
-opportunity-awareness makes the timing policy **learn faster** (B4 beats
-reactive B2 in 17/18 low-budget paired comparisons, p=0.0001) but **not
-end up better** (they converge by 40k steps, p=0.81). Full evidence,
-figure, statistics, and threats to validity:
-[docs/evaluation.md](docs/evaluation.md). Not done (marked open, not
-skipped silently): the oracle timing-regret reference (H4), a
-distribution-shift split (H3), temporal RL (B3), and training on the
-ROS2/Gazebo backend. See [Current research status](#current-research-status)
-below.
+The setting is a manipulator mounted on a wave-disturbed vessel, grasping an independently moving target. Marine simulation is infrastructure, not the object of study: wave- and current-driven disturbance is a physically natural, configurable source of the temporal structure the research question concerns.
 
-**[docs/dashboard.html](docs/dashboard.html)** is a single self-contained
-file — open it directly in a browser, no server or build step — with the
-milestone tracker, confound register, RL spec, environment telemetry, and
-a live in-browser toy simulator of the opportunity-window mechanism, all
-on one page. It's a manually-regenerated snapshot, not a live view; open
-it fresh after material project changes rather than trusting an old tab.
+## Headline finding
 
-## 1. Research problem
+Opportunity-awareness makes the timing policy **learn faster, but not end up better.**
 
-A robotic manipulator mounted on a wave/current-disturbed vessel must
-grasp an independently moving target. Grasp *quality* varies over time —
-a target can be approaching a favorable configuration, briefly pass
-through one, or be about to leave it. This project asks whether an RL
-policy that is given some representation of that temporal structure
-(future interaction *opportunity*) makes better grasp-timing decisions
-than a policy that only reacts to the current instant.
+| Regime | Result | Statistic |
+|---|---|---|
+| Low training budget (10k–20k steps) | Opportunity-aware policy (B4) beats reactive (B2) | 21 / 24 independent units, p = 2.8 × 10⁻⁴, mean Δreturn +0.227 |
+| High training budget (40k–80k steps) | No detectable difference | 14 / 24 units, p = 0.54, mean Δreturn −0.003 |
 
-Full statement, hypotheses, and what would count as support or rejection:
-[docs/research-question.md](docs/research-question.md). The novelty
-claim has been stress-tested against the closest prior work found:
-[docs/related-work-review.md](docs/related-work-review.md).
+The most defensible reading is that the base observation already contains relative velocity, from which a *learned* reactive policy can infer future opportunity given enough data. The explicit signal therefore acts as an inductive bias and a head start rather than raising the performance ceiling.
 
-## 2. Motivation
+> **These results are provisional and should not be cited as they stand.** Every measurement predates four correctness fixes, records no usable revision hash, and is demonstrably not reproducible — re-running the same seeds produces different curves. [docs/evaluation.md §2](docs/evaluation.md#2-provenance-and-status-of-the-evidence) states the problem precisely and §9 states what regeneration requires.
 
-Most dynamic-grasping RL work either treats timing implicitly (react to
-the current state and hope the policy learns to wait) or assumes a static
-target. This project isolates the timing question directly by making
-"when" a first-class, high-level decision (`WAIT` / `APPROACH` /
-`ATTEMPT_GRASP` / `ABORT`) separate from low-level manipulation, and by
-building an explicit, swappable representation of future interaction
-opportunity to compare against a reactive baseline under matched
-conditions. Marine/USV simulation is used because wave- and
-current-driven disturbance is a physically natural, configurable source
-of exactly this kind of temporal structure — it is supporting
-infrastructure, not the research contribution.
+## Hypothesis status
 
-## 3. Architecture
+| ID | Hypothesis | Status |
+|---|---|---|
+| H1 | Opportunity representation improves grasp decision-making | **Split.** Supported for sample efficiency; not supported for final performance. |
+| H2 | The benefit grows with disturbance magnitude | **Undetermined.** A 3-seed sample and an 8-seed sample give opposite orderings. |
+| H3 | Opportunity-awareness generalises better under distribution shift | **Not tested.** The train/test split was never built. |
+| H4 | How much of the gap to a future-aware oracle is closed | **Not tested.** The oracle was specified but not implemented. |
 
-Four layers — RL/research, task/environment, robotics/ROS2, and
-simulation/physics — each depending only on a narrow interface exposed by
-the layer below, so the RL research code can run independently of ROS2
-wherever possible. Full description, confound register, and the current
-simulator-selection decision: [docs/architecture.md](docs/architecture.md).
-RL-specific formalization (observation/action/reward/opportunity spec):
-[docs/rl-formulation.md](docs/rl-formulation.md).
+Full statements, pre-registered support and rejection criteria, and evidence: [docs/research-question.md](docs/research-question.md) and [docs/evaluation.md](docs/evaluation.md).
 
-```text
-RL / research layer        (src/opportunity_rl)
-Task / environment layer   (src/opportunity_rl — DynamicGraspEnv)
-Robotics / ROS2 layer      (ros2_ws/src — state estimation, TF2, MoveIt2)
-Simulation / physics layer (ros2_ws/src/marine_sim_bringup — Gazebo)
-```
+## What is here, and what is not
 
-## 4. Installation
+**Built and validated:** a Gazebo Harmonic + VRX simulation with a Franka Panda mounted on a WAM-V and a validated conventional grasp against the live stack; a ROS2 state-estimation pipeline; a fast pure-Python `SimulationInterface` backend with a source-faithful Gerstner/Pierson-Moskowitz wave disturbance and an independently moving target; a Gymnasium `DynamicGraspEnv` with a fixed 47-dimensional observation schema and a five-term reward; the baseline ladder B0, B1, B2 and B4; a leakage-safe analytic `OpportunityEstimator`; and the matched H1 comparison across seeds, budgets and severities.
 
-Python research layer (no ROS2 required):
+**Not built:** B3 (temporal RL), the oracle timing reference, the distribution-shift split, and the ROS2/Gazebo training backend — no policy has ever been trained or evaluated through ROS2. Specification-to-implementation divergences, including a feasibility predicate simpler than the one specified, are collected in [docs/rl-formulation.md §9](docs/rl-formulation.md#9-divergences-from-specification-collected).
+
+## Documentation
+
+[docs/README.md](docs/README.md) indexes all documentation by evidential role — specification, record, or review. For assessing the research, read [docs/research-question.md](docs/research-question.md) then [docs/evaluation.md](docs/evaluation.md).
+
+[docs/dashboard.html](docs/dashboard.html) is a single self-contained page — no server or build step — carrying the milestone tracker, confound register, RL specification, environment telemetry, and an in-browser toy simulator of the opportunity-window mechanism. It is a manually regenerated snapshot rather than a live view.
+
+## Installation
+
+The Python research layer requires no ROS2:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"      # tooling and tests
+pip install -e ".[rl]"       # torch, gymnasium, numpy — needed to train
+pip install -e ".[viz]"      # matplotlib — needed only for figures
 ```
 
-The `rl` extra (`torch`, `gymnasium`, `numpy`) is not required until
-Milestone M5 and is installed separately when needed:
-
-```bash
-pip install -e ".[rl]"
-```
-
-ROS2 workspace (Jazzy; see [ros2_ws/README.md](ros2_ws/README.md)). The
-third-party packages are fetched via vcstool from the pinned refs in
-`ros2_ws/*.repos`, not vendored:
+The ROS2 workspace (Jazzy) is built separately; see [ros2_ws/README.md](ros2_ws/README.md). Use **system Python**, not a conda environment, for anything ROS2 — the two Python environments are kept separate by design, since the RL training path does not require ROS2 at all.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 cd ros2_ws && colcon build --symlink-install
 ```
 
-Use **system Python** (not a conda environment) when building/running the
-ROS2 workspace — see the note in [ros2_ws/README.md](ros2_ws/README.md)
-on why the RL and ROS2 layers intentionally use separate Python
-environments.
-
-## 5. Simulation launch
-
-Gazebo Harmonic + VRX (Sydney Regatta harbor world, WAM-V vessel, with a
-Franka Panda arm mounted on deck and driven by `ros2_control`) are
-installed and verified working (Milestone M1, essentially done). One
-command launches it:
+## Running the simulation
 
 ```bash
-cd ros2_ws && colcon build --symlink-install  # first time only
 scripts/launch_vrx_sim.sh headless:=True world:=sydney_regatta \
     urdf:=$(pwd)/install/wamv_manipulator_description/share/wamv_manipulator_description/urdf/wamv_with_arm.urdf.xacro
 ```
 
-First launch downloads the world's assets (~159 MiB via Gazebo's Fuel
-service) and can take several minutes depending on network conditions;
-subsequent launches use the local cache. Full setup details, every
-environment gotcha hit along the way, and captured visuals of the
-running simulation are in
-[docs/environment.md](docs/environment.md) — including
-[a third-person shot](docs/images/m1_wamv_sydney_regatta.png) of the
-WAM-V, [an onboard camera view](docs/images/m1_wamv_onboard_camera.png),
-[a short video of the vessel underway](docs/images/m1_wamv_underway.mp4),
-and [a video of the mounted arm executing a commanded trajectory](docs/images/m1_panda_commanded_motion.mp4).
-Simulator selection rationale: [docs/architecture.md](docs/architecture.md#simulator-selection-milestone-m1-decision-recorded-now-per-section-517).
-A rigorous, paper-by-paper review of how this and other marine-robotics
-simulators model ocean waves — including exactly what wave spectrum this
-project's own VRX install uses, verified from source — is in
-[docs/wave-simulation-literature-review.md](docs/wave-simulation-literature-review.md).
+First launch downloads roughly 159 MiB of world assets through Gazebo's Fuel service and may take several minutes; subsequent launches use the local cache. Setup details, exact versions, and every environment defect encountered are in [docs/environment.md](docs/environment.md), alongside captured media of the running simulation.
 
-## 6. Baseline execution
-
-The full ladder is implemented: B0/B1 (reactive heuristics), B2
-(reactive PPO), and B4 (opportunity-aware PPO). B3 (temporal RL) is not
-built. Baseline ladder:
-[docs/rl-formulation.md](docs/rl-formulation.md#baseline-ladder-section-11).
+## Reproducing the experiments
 
 ```bash
-python3 experiments/evaluation_matrix.py --disturbance moving_target \
-    --grasp-duration-steps 3
-```
+# Baseline matrix. Pass the same --grasp-duration-steps the policies were trained at;
+# the default of 1 measures a different task and is not comparable to the H1 result.
+python3 experiments/evaluation_matrix.py --disturbance moving_target --grasp-duration-steps 3
 
-Pass the same `--grasp-duration-steps` the policies were trained at — the
-H1 comparison uses 3, and a matrix run at the default 1 measures a
-different task and is not comparable to it.
-
-## 7. RL training
-
-```bash
-pip install -e ".[rl]"
+# Train the reactive baseline. Use --disturbance moving_target: the default
+# sydney_regatta_default configuration is deliberately easy (the target is always
+# graspable, so timing is irrelevant).
 python3 experiments/train_b2.py --disturbance moving_target --seed 0
-```
 
-Trains B2 against the fast `DynamicGraspEnv`, evaluates against a random
-floor on held-out seeds, and writes reproducibility metadata + a
-checkpoint under `results/<run>/`. Note: the default
-`sydney_regatta_default` disturbance is intentionally easy (target always
-graspable, so timing is irrelevant); use `--disturbance moving_target`
-for the condition where the timing decision actually matters. Details:
-[docs/implementation-status.md](docs/implementation-status.md).
-
-## 8. Evaluation
-
-The H1 controlled evaluation is complete and written up in
-[docs/evaluation.md](docs/evaluation.md) (tables, the learning-curve
-figure, paired sign-test statistics, and threats to validity). Headline:
-opportunity-awareness (B4) beats reactive RL (B2) on sample efficiency
-(17/18 low-budget paired wins, p=0.0001) but not on final performance
-(8/18, p=0.81). Reproduce the core sweep with (needs both extras — the figure is
-matplotlib, which lives in `viz`, not `rl`):
-
-```bash
-pip install -e ".[rl,viz]"
+# The H1 sweep behind the reported figure.
 python3 experiments/learning_curve_h1.py \
     --disturbances moving_target_mild moving_target moving_target_severe \
     --grasp-duration-steps 3 --seeds 0 1 2
 ```
 
-## 9. Experiment reproduction
+Each training run writes `results/<run>/metadata.json` capturing seed, git revision, resolved configuration, total environment steps and evaluation results, alongside a checkpoint. `results/` is gitignored. Training and evaluation never share a seed; evaluation uses `seed + 10_000`.
 
-Every training run is reproducible from its recorded metadata: `python3
-experiments/train_b2.py` writes `results/<run>/metadata.json` capturing
-seed, git commit, the resolved config, total env steps, and all
-evaluation results, alongside the model checkpoint. `results/` is
-gitignored (artifacts, not source). Training and evaluation never share a
-seed (eval uses `seed + 10_000`).
+**Note on reproduction:** the statistics reported in the documentation are not currently regenerable by any committed script — they were computed from `curve_data.json` by ad hoc analysis. Committing that analysis is one of the outstanding items in [docs/project-plan.md §4](docs/project-plan.md#4-status-and-what-remains).
 
-## 10. Current research status
+## Known limitations
 
-- Milestones **M0–M11 done** on the fast backend. See
-  [docs/project-plan.md](docs/project-plan.md) for the full milestone table.
-- **H1 is tested, with a nuanced answer** (Section 8): opportunity-awareness
-  improves *sample efficiency* (17/18 low-budget paired wins, p=0.0001) but
-  not *final performance* (8/18, p=0.81). H2 (does the benefit grow with
-  disturbance severity?) has severity-ladder data but no confirmatory
-  result. H3 (distribution shift) and H4 (oracle timing regret) are
-  **untested** — open, not silently skipped.
-- Repository currently contains: the research/architecture/RL docs; a
-  working Gazebo Harmonic + VRX simulation with a Panda arm and a
-  validated conventional grasp (M1–M3, real ROS2/Gazebo stack); a fast
-  pure-Python `SimulationInterface` backend with a source-faithful marine
-  wave disturbance and dynamic target (M4); a Gymnasium `DynamicGraspEnv`
-  with the frozen observation/reward spec (M5); the full baseline ladder
-  (B0/B1 heuristics, B2 reactive PPO, B4 opportunity-aware PPO); a
-  leakage-safe analytic `OpportunityEstimator` (M8); and the matched H1
-  comparison across seeds and severities (M10/M11). Not built: B3
-  (temporal RL), and training against the ROS2/Gazebo backend.
-- A useful finding surfaced early at M6: because episodes are long enough
-  that even a random policy eventually grasps, **success rate saturates
-  and is the wrong discriminating metric** — return/efficiency is what
-  separates a good policy from a bad one here. This shaped what the M11
-  evaluation measures.
-- An engineering audit of long-term experiment-readiness is in
-  [docs/engineering-review.md](docs/engineering-review.md).
+1. **All results are from the fast kinematic backend.** The ROS2/Gazebo backend implements the same interface but was never trained against. The timing structure the hypothesis concerns is represented faithfully; low-level manipulation is not, by design.
+2. **The feasibility predicate is simpler than specified** — distance and relative speed only, with no grasp-geometry, orientation or angular-velocity terms, and a zero end-effector-velocity proxy. Both policies face the identical predicate, so the comparison stands, but the generality of any claim is bounded accordingly.
+3. **The collision penalty never fires**, because the fast backend has no contact model. The pathway is wired and inert.
+4. **Success rate is saturated and uninformative** on these tasks; return is the discriminating metric throughout.
+5. **MoveIt2 planning is exercised only by the scripted M3 grasp**, never by an RL policy.
+6. **DART cannot build collision geometry** from the Panda's stock meshes and does not enforce the gripper's mimic joint — pre-existing engine limitations, relevant once real grasp contact is implemented.
 
-### Results predating the frame/reproducibility fixes
+## Exploratory visualisation
 
-Everything currently under `results/` was produced before four defects
-were fixed (see the repository history): a vessel/world frame mismatch in
-the published target state, the same mismatch in the opportunity
-estimator, unseeded training-episode resets that made runs
-irreproducible, and stale observations carried across an interleaved
-train/evaluate boundary. The frame errors were latent (measured to flip
-no grasp decision under the shipped configs) and the reported direction
-of the H1 effect is not expected to change, **but those numbers were not
-reproducible from their recorded metadata and their `git_commit` field
-reads `"HEAD"` rather than a revision.** They should be regenerated
-before being cited.
-
-## 11. Known limitations
-
-- MoveIt2's planning pipeline (`move_group`) runs for the mounted arm via
-  `wamv_manipulator_moveit_config` (whose SRDF replaces the stock
-  `world`-fixed virtual joint with a fixed mount on the vessel's base
-  link), but the RL policies never use it — they train against the fast
-  backend, and the MoveIt2 path is exercised only by M3's scripted grasp.
-- DART (Gazebo's physics engine) cannot build collision geometry from
-  the Panda's stock mesh-based collision shapes, and does not enforce
-  the gripper's mimic joint — both pre-existing DART limitations, not
-  introduced by this project, but relevant once real grasp contact is
-  implemented (M3). See [docs/implementation-status.md](docs/implementation-status.md).
-- Every quantitative claim in Sections 1–2 above is a hypothesis to be
-  tested, not a result. This project makes no novelty or performance
-  claims beyond what has actually been experimentally demonstrated (see
-  [docs/research-question.md](docs/research-question.md)).
-
-## Exploratory visualization (not M4/M5/M8 — see caveat below)
-
-`scripts/visualize_opportunity_concept.py` is a standalone,
-numpy+matplotlib-only illustration of the core research question (a
-disturbed vessel, an independently drifting target, a "good opportunity"
-window, and a reactive-vs-lookahead decision comparison), for exploring
-and communicating the problem without standing up Gazebo. It is
-explicitly **not** the M4 dynamic-grasping environment, the M5
-`DynamicGraspEnv`, or the M8 `OpportunityEstimator` — those will be built
-against the frozen interfaces in
-[docs/rl-formulation.md](docs/rl-formulation.md) when their milestones
-are reached; nothing in this script should be cited as progress on them.
+`scripts/visualize_opportunity_concept.py` is a standalone numpy and matplotlib illustration of the research question — a disturbed vessel, a drifting target, a good-opportunity window, and a reactive-versus-lookahead comparison. It is **not** the environment, the estimator, or any part of the experimental pipeline, and nothing in it should be cited as a result.
 
 ```bash
 pip install -e ".[viz]"
-python3 scripts/visualize_opportunity_concept.py            # static PNG
-python3 scripts/visualize_opportunity_concept.py --video     # + mp4 (needs ffmpeg)
+python3 scripts/visualize_opportunity_concept.py            # static figure
+python3 scripts/visualize_opportunity_concept.py --video    # animation (requires ffmpeg)
 ```
 
 ## Repository layout
 
 ```text
-docs/            research question, architecture, RL formulation, project plan
-src/opportunity_rl/   RL research layer (Python, ROS2-independent)
-ros2_ws/         ROS2 workspace (robotics/simulation layers)
-tests/           unit tests for src/opportunity_rl
-scripts/         diagnostics + the exploratory visualizer above
-configs/         disturbance configs (one YAML per condition, loaded by name)
-experiments/     training / comparison / evaluation-matrix scripts
-results/         run artifacts (metadata + checkpoints), gitignored
+docs/                 research question, architecture, RL specification, evaluation, reviews
+src/opportunity_rl/   RL research layer (ROS2-independent)
+  sim/                SimulationInterface, fast backend, wave disturbance, episodes
+  env/                DynamicGraspEnv, observation schema, reward
+  algorithms/         PPO, heuristics, random policy
+  opportunity/        OpportunityEstimator
+ros2_ws/src/          ROS2 packages (description, state estimator, MoveIt2 config, grasp pipeline)
+tests/                unit tests for src/opportunity_rl
+configs/disturbances/ named disturbance conditions, one YAML per condition
+experiments/          training, comparison and evaluation-matrix scripts
+scripts/              diagnostics and the exploratory visualiser
+results/              run artefacts (gitignored)
 ```
 
 ## Development
 
 ```bash
-ruff check .            # lint
-ruff format .           # format
-mypy src/opportunity_rl # type check
-pytest                  # tests
+ruff check . && ruff format --check .
+mypy src/opportunity_rl
+pytest
 ```
 
-**Known environment gotcha:** if your shell sources ROS2's
-`setup.bash` on startup (common when `ros2_ws` work is also happening in
-the same shell), `PYTHONPATH` will contain ROS2's `site-packages`. That
-leaks ROS2's `launch_testing` package into this venv's pytest plugin
-autodiscovery, which then fails importing `yaml` (a ROS2-side dependency,
-not one of ours) instead of running our tests. Run `unset PYTHONPATH`
-before invoking `pytest`/`ruff`/`mypy` in a shell that has ROS2 sourced,
-or use a separate shell/tab for `src/opportunity_rl` work that never
-sources `/opt/ros/jazzy/setup.bash`. This does not affect CI (the CI
-runner has no ROS2 installed) — it is a local dev-shell issue only.
+**Environment note:** if your shell sources ROS2's `setup.bash`, `PYTHONPATH` will contain ROS2's `site-packages`, which leaks `launch_testing` into pytest's plugin autodiscovery and fails before any test runs. Run `unset PYTHONPATH` first, or keep a separate shell for `src/opportunity_rl` work. This does not affect CI, which has no ROS2 installed.
 
 ## License
 

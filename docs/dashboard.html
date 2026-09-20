@@ -427,11 +427,11 @@
         <div class="label">Sample-eff. yes, ceiling no</div>
       </div>
       <div class="banner-stat">
-        <div class="num mono">17/18</div>
-        <div class="label">Low-budget B4&gt;B2 (p=.0001)</div>
+        <div class="num mono">21/24</div>
+        <div class="label">Low-budget B4&gt;B2 (p=2.8e-4, n=8)</div>
       </div>
       <div class="banner-stat">
-        <div class="num mono">2026-08-14</div>
+        <div class="num mono">2026-09-20</div>
         <div class="label">Snapshot date</div>
       </div>
     </div>
@@ -470,13 +470,16 @@
         <span class="hyp-id">H1 · primary</span>
         <p>An opportunity signal in the observation raises grasp success and/or lowers timing
           regret vs. an otherwise-identical reactive policy, under matched conditions.</p>
-        <span class="hyp-meta">Partially supported: sample efficiency YES (17/18 low-budget wins,
-          p=.0001), final performance NO (8/18, p=.81).</span>
+        <span class="hyp-meta">Provisional. Split by budget: sample efficiency YES (21/24 independent
+          low-budget units, p=2.8e-4), final performance NO (14/24, p=.54). Evidence predates four
+          correctness fixes and is not reproducible &mdash; see docs/evaluation.md &sect;2.</span>
       </div>
       <div class="hyp-card">
         <span class="hyp-id">H2 · secondary</span>
         <p>The benefit of opportunity-awareness grows with disturbance magnitude.</p>
-        <span class="hyp-meta">Rejected: benefit present at all severities, doesn't scale with them.</span>
+        <span class="hyp-meta">Undetermined. Previously reported rejected on 3 seeds; an 8-seed sample
+          gives an ordering that increases monotonically with severity (&minus;0.17 / +0.38 / +0.47),
+          contradicting that verdict.</span>
       </div>
       <div class="hyp-card">
         <span class="hyp-id">H3 · secondary</span>

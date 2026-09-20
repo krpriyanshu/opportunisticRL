@@ -1,247 +1,151 @@
-# RL Formulation
+# RL Formulation: Specification and As-Built Reconciliation
 
-This document is the formal specification for the RL layer: action space,
-observation space, reward, episode structure, opportunity representation,
-and the baseline ladder. It is written before any RL code exists
-(Milestone M0) so that later implementation is checked against a fixed
-spec rather than the spec being inferred from whatever code happens to get
-written. When implementation at M5+ forces a change to this spec, the
-change is made here first, with a note on why, rather than left
-undocumented in code.
+This document is the formal specification for the RL layer — action space, observation space, reward, episode structure, opportunity representation, and the baseline ladder. It was written before any RL code existed, so that the implementation could be checked against a fixed specification rather than the specification being inferred from whatever code happened to be written.
 
-See [research-question.md](research-question.md) for why this formulation
-exists, and [architecture.md](architecture.md#confound-register) for the
-confounds this formulation is specifically designed to avoid.
+It now serves a second purpose. Where the implementation diverges from the original specification, the divergence is recorded here in a **Divergence** note rather than left to be discovered by reading the source. Section 9 collects these. Readers assessing what was actually built, as opposed to what was planned, should read the divergences first.
 
-## Framework decision
+See [research-question.md](research-question.md) for why this formulation exists and [architecture.md §4](architecture.md#4-confound-register) for the confounds it is designed to avoid.
 
-**PyTorch** is selected as the RL framework, per Section 12's preference
-for PyTorch "if it simplifies integration and experimentation." Rationale
-recorded per Section 51.6:
+## 1. Framework
 
-- No JAX-specific performance requirement exists yet (Section 51: training
-  is simulation-based and correctness, not throughput, is primary).
-- The environment this repo is built in already has a working
-  CUDA-enabled PyTorch install, avoiding an extra dependency-resolution
-  step (verified: `torch==2.12.1+cu130`).
-- PyTorch's ecosystem (Gymnasium, Stable-Baselines3 or a small custom PPO)
-  is the more direct path to B2 (standard RL baseline) without building
-  RL infrastructure ourselves, per the explicit instruction not to build a
-  custom RL framework (Section 12).
+**PyTorch**, with a small custom PPO rather than a third-party RL library. The rationale was that no JAX-specific performance requirement existed, correctness rather than throughput was primary, and a discrete four-action space is directly served by PPO's categorical head. The choice was to be revisited only if a concrete bottleneck were measured; none was.
 
-This is revisited only if a concrete performance bottleneck is measured
-(not assumed) at M6+.
+## 2. Action space
 
-## Action space (Section 6)
-
-Discrete, initially 4 actions, shared by every baseline (Confound #2/#3):
+Discrete, four actions, shared by every baseline:
 
 | Value | Name | Meaning |
 |---|---|---|
 | 0 | `WAIT` | Hold current pose; no approach or grasp motion commanded. |
 | 1 | `APPROACH` | Command the manipulation manager toward the current grasp-candidate pose. |
-| 2 | `ATTEMPT_GRASP` | Commit to a grasp execution via the conventional manipulation stack (Section 7). |
-| 3 | `ABORT` | Cancel an in-progress approach/grasp and return to a safe standby pose. |
+| 2 | `ATTEMPT_GRASP` | Commit to a grasp execution via the conventional manipulation stack. |
+| 3 | `ABORT` | Cancel an in-progress approach or grasp and return to a safe standby pose. |
 
-A fifth action, `REPOSITION`, and/or continuous parameters (e.g. a
-target-relative offset) are explicitly deferred (Section 6) until the
-4-action formulation is shown to be insufficient by an actual experiment,
-not added speculatively.
+A fifth action (`REPOSITION`) and continuous parameters such as a target-relative offset were deferred until the four-action formulation could be shown insufficient by experiment. No such demonstration was produced, so the action space remains as specified.
 
-The action is issued at a fixed **decision period** (a config value, not
-per-baseline), decoupling the RL decision rate from the underlying
-controller's rate. This value is part of the environment config so it is
-identical across all baselines being compared (Confound #2).
+Actions are issued at a fixed **decision period**, a configuration value rather than a per-baseline constant, which decouples the RL decision rate from the underlying controller's rate and guarantees confound 2 by construction.
 
-## Observation space (Section 8)
+## 3. Observation space
 
-The observation is a flat, normalized vector with a documented schema.
-Exact dimensionality depends on the finalized robot/simulator (Section 8's
-own caveat) and will be fixed in code at M5 as `ObservationSchema`, but
-the *fields* are fixed now:
+A flat, normalised vector with a fixed schema. The base dimension is **47** — the sum of the field widths below, computed from the schema rather than hard-coded. B4 appends a 4-dimensional opportunity block, giving it a 51-dimensional observation; B2's is the 47-dimensional base alone.
 
-```text
-relative_target_position       (3,)   meters, target frame relative to end-effector
-relative_target_orientation    (4,)   quaternion, target relative to end-effector
-relative_target_linear_vel     (3,)   m/s, in end-effector/base frame
-relative_target_angular_vel    (3,)   rad/s
-ee_pose                        (7,)   position (3) + quaternion (4), vessel-base frame
-joint_state                    (2*N,) position + velocity for N manipulator joints
-vessel_linear_vel              (3,)   m/s, world frame
-vessel_angular_vel             (3,)   rad/s
-distance_to_grasp_region       (1,)   meters
-orientation_error              (1,)   radians
-relative_approach_velocity     (1,)   m/s, closing speed along approach axis
-task_state                     (K,)   one-hot or small integer encoding of current phase
-```
+| Field | Width | Units and frame |
+|---|---|---|
+| `relative_target_position` | 3 | metres, target relative to end-effector |
+| `relative_target_orientation` | 4 | quaternion, target relative to end-effector |
+| `relative_target_linear_vel` | 3 | m/s |
+| `relative_target_angular_vel` | 3 | rad/s |
+| `ee_pose` | 7 | position (3) + quaternion (4), vessel-base frame |
+| `joint_state` | 14 | position and velocity for 7 arm joints |
+| `vessel_linear_vel` | 3 | m/s, world frame |
+| `vessel_angular_vel` | 3 | rad/s |
+| `distance_to_grasp_region` | 1 | metres |
+| `orientation_error` | 1 | radians |
+| `relative_approach_velocity` | 1 | m/s, closing speed along approach axis |
+| `task_state` | 4 | one-hot over the four actions |
 
-Rules (binding on the implementation at M5, not aspirational):
+Three rules bind the implementation:
 
-- Every field is normalized to a documented, bounded range before being
-  handed to a policy network. Raw units above are the *pre-normalization*
-  definition; the normalization constants live in config, not hard-coded.
-- The conversion from simulator/ROS2 state to this vector is a pure,
-  deterministic function — no hidden simulator handle is available to
-  policy code.
-- `pose_uncertainty` / `velocity_uncertainty` fields are supported by the
-  schema (as optional, zero-filled-by-default fields) but **disabled** in
-  the first experiment, per Section 8. Enabling them is an explicit,
-  documented config change, not a silent default.
-- The **reactive** and **opportunity-aware** policies read the *same*
-  `ObservationSchema` above. The opportunity-aware policy additionally
-  receives the output of an `OpportunityEstimator` (next section) as an
-  explicitly separate, named field appended to the vector — never mixed
-  into the base fields — so Confound #1 (unequal unrelated information)
-  is checkable by inspecting one field list rather than a diff of two
-  parallel schemas.
+1. **Normalisation.** Every field is divided through by a characteristic scale before a policy sees it, using constants held in a `NormConfig` dataclass rather than inline in the conversion body. The raw units above are pre-normalisation definitions.
+2. **Purity.** Conversion from simulator state to this vector is a deterministic function with no hidden simulator handle reachable from policy code.
+3. **Separation.** The reactive and opportunity-aware policies read the *same* base schema. The opportunity-aware policy additionally receives the estimator's output appended as a separate block, never mixed into the base fields, so confound 1 is checkable by inspecting one field list rather than diffing two parallel schemas.
 
-## Future opportunity representation (Section 9)
+The optional `pose_uncertainty` and `velocity_uncertainty` fields are represented in the schema as zero-filled blocks, disabled by default. Enabling them is an explicit configuration change rather than a silent default. They were never enabled.
 
-Interface, not a fixed formula:
+## 4. Future opportunity representation
 
-```text
-OpportunityEstimator:
-    input:  current state, optional history, optional predicted target trajectory
-    output: opportunity representation
-```
+The specification fixes an interface rather than a formula, admitting three representation shapes without an environment rewrite: a scalar opportunity score at the current instant; a future opportunity vector over a fixed horizon; or a probability of successful grasp at each of several horizons.
 
-Three representation shapes are supported by the interface without
-requiring an environment rewrite (Section 9):
+**As built:** the second shape — a future-opportunity vector `[O(t+d₁), …, O(t+d₄)]` at horizons **0.5, 1.0, 1.5 and 2.0 seconds**, giving a 4-dimensional appended block. Each element is a smooth analogue of the feasibility predicate evaluated at an extrapolated future state.
 
-1. **Scalar opportunity score** `O(t) ∈ [0, 1]` at the current instant.
-2. **Future opportunity vector** `[O(t+Δ1), ..., O(t+ΔN)]` over a fixed
-   horizon.
-3. **Probability of successful grasp** at each of several future horizons.
+The estimator is **second-order**: it uses relative position, velocity, and a finite-difference acceleration derived from one step of velocity history. This matters mechanistically — good windows arise from the target *decelerating* at wave turning points, and a constant-velocity predictor is structurally blind to deceleration. A unit test confirms the second-order estimator's peak future opportunity exceeds a first-order estimator's by more than 0.2 on a decelerating approach.
 
-**First implementation (M8): deterministic/analytic, representation (2).**
-A closed-form function of the same measurable quantities used for the
-Section 10 feasibility definition (position error, orientation error,
-relative velocity, relative angular velocity), projected forward using the
-target's *currently estimated* velocity — not the simulator's true future
-trajectory (Confound #7 / Section 39). This gives a non-RL reference
-opportunity signal before any learned opportunity model is attempted, and
-it is deliberately kept legible so its behavior can be unit-tested
-directly (good state → high opportunity, bad state → low opportunity, per
-Section 34).
+A learned opportunity model, such as a trajectory predictor, was specified as a later extension contingent on the analytic version proving a bottleneck. It was not built, and the null final-performance result in [evaluation.md §7](evaluation.md#7-h1-what-the-evidence-supports) is the clearest motivation for attempting it.
 
-A learned opportunity model (e.g. a small trajectory predictor) is a later
-extension, only pursued if the analytic version is shown to be a
-bottleneck — not built speculatively alongside it.
-
-**Future-information leakage rule (Section 39, binding):**
+**Future-information leakage rule (binding):**
 
 | Input | Status |
 |---|---|
-| Current observation | Valid |
-| Learned/analytic prediction from current + past state | Valid |
-| Short-horizon *estimated* trajectory (extrapolated, not ground truth) | Valid, with caution — must be clearly derived, never copied from simulator future state |
-| True future simulator trajectory | **Invalid** for any policy input. Reserved exclusively for the oracle baseline (B-oracle, Section 27), which is never used as a policy, only as an evaluation reference. |
+| Current observation | Permitted |
+| Prediction derived from current and past state | Permitted |
+| Short-horizon *estimated* trajectory (extrapolated) | Permitted, provided it is derived rather than copied from simulator future state |
+| True future simulator trajectory | **Prohibited** as a policy input. Reserved for the oracle reference, which is never used as a policy. |
 
-## Grasp opportunity / feasibility definition (Section 10)
+The estimator is stateful — it holds one past velocity — and is reset by the environment each episode so that nothing crosses an episode boundary.
 
-Deterministic, and shared by every baseline that needs a feasibility
-notion (B0, B1, and the analytic `OpportunityEstimator`) so that B0/B1's
-behavior and the opportunity signal are computed from one definition, not
-reimplemented three times:
+## 5. Grasp opportunity and feasibility
+
+The specification defines a layered predicate, shared by every baseline that needs a feasibility notion so that heuristic behaviour and the opportunity signal derive from one definition rather than three:
 
 ```text
-reachable        := target within manipulator workspace bound
-graspable         := reachable AND grasp geometry valid (approach axis, clearance)
-good_opportunity  := graspable AND orientation_error < θ_max
-                                AND relative_velocity < v_max
-                                AND relative_angular_velocity < ω_max
+reachable            := target within manipulator workspace bound
+graspable            := reachable AND grasp geometry valid (approach axis, clearance)
+good_opportunity     := graspable AND orientation_error < θ_max
+                                  AND relative_velocity < v_max
+                                  AND relative_angular_velocity < ω_max
 successful_execution := realized outcome from the conventional grasp controller,
-                         reported after ATTEMPT_GRASP — not assumed from
-                         good_opportunity
+                        reported after ATTEMPT_GRASP — not assumed from good_opportunity
 ```
 
-`good_opportunity` being true does not imply `successful_execution` will
-be true — the manipulation stack can still fail. This distinction is what
-lets the project separate "did the policy pick a good moment" from "did
-the controller execute correctly," which matters for failure analysis
-(Section 41).
+> **Divergence.** The implemented predicate (`sim/episode.py:evaluate_feasibility`) is the reduced form
+> `reachable := distance < workspace_radius_m` and `good_opportunity := reachable AND relative_speed < max_relative_speed_mps`.
+> The intermediate `graspable` stage is absent, and neither `orientation_error` nor `relative_angular_velocity` participates. A second simplification compounds this: end-effector velocity is not tracked separately, so the "relative" velocity is the target's velocity in the vessel frame against a zero end-effector-velocity proxy. The task is therefore a **distance-and-speed timing problem**, not the full geometric grasp-feasibility problem the specification describes. This does not invalidate the H1 comparison, which turns on whether an anticipatory signal helps time a committed decision, and both policies face the identical predicate. It does bound the generality of any claim: the result concerns timing under a simplified feasibility model.
 
-## Reward (Section 16)
+The distinction between `good_opportunity` and `successful_execution` is retained in the design: a good opportunity does not imply a successful grasp, which is what separates "did the policy pick a good moment" from "did the controller execute correctly."
+
+## 6. Reward
 
 ```text
-R_t = R_success · 1[success]
-      - λ_f · C_failure
-      - λ_c · C_collision
-      - λ_t · C_time
-      - λ_m · C_motion
+R_t = R_success · 1[success] − λ_f·C_failure − λ_c·C_collision − λ_t·C_time − λ_m·C_motion
 ```
 
-- One implementation, parameterized by config (`R_success`, `λ_f`, `λ_c`,
-  `λ_t`, `λ_m`), shared across every baseline that is RL-trained
-  (Confound #6). Heuristic baselines (B0/B1) do not use the reward at
-  decision time (they're not learned) but episodes are still scored with
-  it for comparable metrics.
-- `C_time` is applied every step regardless of action, including `WAIT`,
-  so that indefinite waiting has an explicit, nonzero opportunity cost
-  (Section 16's binding requirement: waiting forever must not be optimal).
-  This is checked directly by a unit test at M5 (an all-`WAIT` episode's
-  return must be strictly less than a successful episode's return under
-  default config).
-- Reward shaping beyond the five terms above is deliberately avoided
-  ("do not over-shape the reward," Section 16). If shaping is later found
-  necessary, it is added as a named, documented, separately-ablatable term
-  — not folded into an existing coefficient.
+As-built defaults: `R_success = 1.0`, `λ_f = 0.5`, `λ_c = 1.0`, `λ_t = 0.01` per step, `λ_m = 0.001`.
 
-## Episode structure (Section 17)
+- One implementation, parameterised by configuration and shared across every RL-trained baseline (confound 6). Heuristic baselines do not consume the reward at decision time but their episodes are scored with it so that metrics remain comparable.
+- `C_time` accrues every step regardless of action, including `WAIT`, so indefinite waiting carries a nonzero opportunity cost. This is a binding requirement — waiting forever must not be optimal — and is verified directly by a unit test asserting that an all-`WAIT` episode's return is strictly less than a successful episode's.
+- Shaping beyond these five terms is deliberately avoided. Any shaping added later must be a named, separately ablatable term rather than folded into an existing coefficient.
 
-Terminates on exactly one of: `success` (grasp executed and verified),
-`target_lost` (target leaves workspace bounds), `collision` (unsafe
-contact), `timeout` (configurable max duration reached), or
-`irrecoverable_state` (robot state outside recoverable bounds, e.g. a
-controller fault). The termination reason is recorded on every episode
-(feeds Section 41 failure analysis) — episodes never terminate silently
-with an unclassified reason.
+> **Divergence.** `C_collision` never fires on the fast backend, which has no collision model. The term is wired through the whole pipeline and is ready, but is inert in every result reported. `EpisodeConfig` deliberately declares no collision margin, on the grounds that a declared margin would advertise a check nothing performs.
 
-## Baseline ladder (Section 11)
+## 7. Episode structure
 
-Implemented strictly in this order; each is validated before the next is
-attempted (Section 51.4). All share: action space, observation schema
-(minus the opportunity field, where applicable), reward, controller stack,
-and — for RL baselines — training step budget and disturbance
-distribution (per the confound register).
+An episode terminates on exactly one of `success`, `target_lost`, `collision`, `timeout`, or `irrecoverable_state`. The reasons are checked in a fixed priority order so that exactly one is ever reported even when several conditions hold simultaneously, and the reason is recorded on every episode; episodes never terminate with an unclassified reason. Defaults: `max_duration_s = 60.0`, `target_lost_radius_m = 3.0`.
 
-| ID | Name | Decision rule | Learned? |
-|---|---|---|---|
-| B0 | Immediate/heuristic | `GRASP` iff `good_opportunity`, else `WAIT` | No |
-| B1 | Reactive heuristic | Explicit configurable thresholds on distance/orientation/velocity (superset of B0's logic, tunable independently) | No |
-| B2 | Standard RL (reactive) | PPO or SAC over the base observation schema only | Yes |
-| B3 | Temporal RL | B2 + observation history (stacked frames or a recurrent (GRU/LSTM) policy) — only implemented if M5/M6 data shows meaningful temporal dependence, per Section 11 | Yes |
-| B4 | Opportunity-aware RL (proposed) | B2/B3 + `OpportunityEstimator` output appended to observation | Yes |
-| Oracle | Timing reference (not a baseline for H1) | Full future trajectory → best achievable grasp time, computed offline | No (not a policy) |
+## 8. Baseline ladder
 
-PPO is the tentative choice for B2 over SAC, since the action space is
-discrete (Section 6) and PPO has simpler, more standard discrete-action
-support; this is confirmed (not just assumed) once B2 is actually
-implemented at M6, and documented there if SAC (or a discrete SAC variant)
-turns out to be preferable.
+Implemented in order, each validated before the next was attempted. All share the action space, the observation schema (minus the opportunity block where applicable), the reward, and — for RL baselines — the training budget and disturbance distribution.
 
-## Training / evaluation separation (Section 13)
+| ID | Name | Decision rule | Learned | Built |
+|---|---|---|---|---|
+| B0 | Immediate heuristic | `ATTEMPT_GRASP` iff `good_opportunity`, else `WAIT` | No | Yes |
+| B1 | Reactive heuristic | Configurable thresholds on distance and speed; reduces to B0 at default thresholds | No | Yes |
+| B2 | Standard RL (reactive) | PPO over the base observation only | Yes | Yes |
+| B3 | Temporal RL | B2 plus observation history (stacked frames or a recurrent policy) | Yes | **No** |
+| B4 | Opportunity-aware RL | B2 plus the appended estimator output | Yes | Yes |
+| — | Oracle timing reference | Full future trajectory to best achievable grasp time, computed offline | Not a policy | **No** |
 
-Never share a seed or disturbance draw between a training run and the
-evaluation used to report that run's performance. Training uses randomized
-disturbance draws across multiple seeds; evaluation uses fixed seeds and
-explicitly named scenarios (E0–E5, defined in `docs/evaluation.md`,
-written at M11 when evaluation scenarios are implemented). Training-time
-episode statistics may be logged for monitoring but are never the number
-reported as a result.
+B3 was conditional on evidence of meaningful temporal dependence; that evidence was not gathered, and B3 was not built. The oracle was specified as the reference against which timing regret (H4) would be measured; without it, timing regret is not computable, which is why H4 is untested.
 
-## Curriculum (Section 15)
+## 9. Divergences from specification, collected
 
-Configurable staged difficulty, not hard-coded into the environment:
-static → low target motion → low vessel disturbance → combined motion →
-higher disturbance → observation noise → distribution shift. Implemented
-as a list of named disturbance configs in `configs/experiments/`, selected
-by training script argument, so the curriculum itself is an experiment
-artifact rather than logic embedded in `DynamicGraspEnv`.
+1. **Feasibility predicate reduced** from a four-condition geometric definition to distance plus relative speed; `graspable`, orientation error, and angular velocity are not evaluated (Section 5).
+2. **End-effector velocity is a zero proxy**, so relative velocity is effectively target velocity in the vessel frame (Section 5).
+3. **Collision penalty inert** — the fast backend has no contact model, so `C_collision` never fires (Section 6).
+4. **B3 and the oracle were not built** (Section 8), leaving H4 untestable.
+5. **Uncertainty observation fields never enabled** (Section 3).
+6. **Only one of two backends exists** — no policy has been trained or evaluated through ROS2/Gazebo (see [architecture.md §2](architecture.md#2-the-two-backend-design)).
 
-## Interfaces (Sections 21, 22, 12)
+## 10. Training and evaluation separation
 
-Fixed method signatures (implemented starting M5; recorded here first):
+A training run and the evaluation used to report its performance never share a seed or a disturbance draw. Training draws randomised disturbances across seeds; evaluation uses fixed held-out seeds offset by `+10_000`. Training-time episode statistics may be logged for monitoring but are never reported as a result.
+
+## 11. Curriculum
+
+Staged difficulty was specified as configurable rather than hard-coded, progressing from static through low target motion, low vessel disturbance, combined motion, higher disturbance, observation noise, and distribution shift.
+
+> **Divergence.** No staged curriculum was implemented. What exists is the three-rung severity ladder (`moving_target_mild`, `moving_target`, `moving_target_severe`) used as separate experimental conditions rather than as a progression, plus `sydney_regatta_default`. The later stages — observation noise and distribution shift — were never built, which is why H3 is untested.
+
+## 12. Interfaces
 
 ```python
 class SimulationInterface(Protocol):
@@ -268,15 +172,4 @@ class RLAlgorithm(Protocol):
     def load_checkpoint(self, path: Path) -> None: ...
 ```
 
-`RLAlgorithm` configuration surfaces (Section 12, all config-driven, not
-hard-coded): seed, environment config, algorithm config, network config,
-training steps, evaluation frequency, checkpoint frequency.
-
-## Status of this document
-
-This is a specification, written before implementation, per Section 51's
-instruction to keep the research layer's interfaces fixed and testable
-before building against them. It will be updated in place (not silently
-diverged from) if implementation at M5+ reveals a problem with it — any
-such change should be a deliberate, noted edit here, cross-referenced from
-the commit that made it necessary.
+Both `SimulationInterface` and `RLAlgorithm` are real `typing.Protocol` definitions rather than documentation-only contracts, so conformance is checked structurally by mypy. All `RLAlgorithm` configuration surfaces — seed, environment config, algorithm config, network config, training steps, evaluation and checkpoint frequency — are config-driven rather than hard-coded.

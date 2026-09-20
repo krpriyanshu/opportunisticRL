@@ -19,9 +19,7 @@ vcs import src < vrx.repos
 vcs import src < moveit_resources.repos
 ```
 
-Do not add a package here before its milestone's content actually exists
-— an empty ROS2 package is placeholder scaffolding with no purpose to
-validate against (see `docs/project-plan.md`'s M0 scope decision).
+No package is added here before it has content to validate, on the principle that an empty ROS2 package is scaffolding with nothing to check against. Three packages named in early planning — `marine_sim_bringup`, `marine_rl_policy` and `marine_interfaces` — were consequently never created; see [docs/project-plan.md §3](../docs/project-plan.md#3-decisions-deferred-and-what-became-of-them).
 
 ### Tests
 
@@ -39,11 +37,4 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-Note (recorded per `docs/architecture.md`): ROS2 Jazzy on this system is
-built against system Python 3.12 (`/usr/bin/python3`). If your shell
-activates a different Python (e.g. a conda environment) by default,
-`rclpy` will fail to import with a `_rclpy_pybind11` extension-module
-error. Build and run ROS2 nodes with system Python active, not a conda
-environment — this is why the RL research code in `src/opportunity_rl`
-and the ROS2 packages here are kept on separate Python environments by
-design (Section 23: the RL training path does not require ROS2 at all).
+**Python environment note.** ROS2 Jazzy on this system is built against system Python 3.12 (`/usr/bin/python3`). If your shell activates a different interpreter — a conda environment, for instance — `rclpy` fails to import with a `_rclpy_pybind11` extension-module error. Build and run ROS2 nodes with system Python active. This is why the RL research code in `src/opportunity_rl` and the ROS2 packages here are kept in separate Python environments by design: the RL training path does not require ROS2 at all.
