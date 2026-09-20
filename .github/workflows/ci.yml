@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# A new push to the same branch makes an in-flight run obsolete; cancel it
+# rather than paying for two runs and reading the stale one's result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-24.04
@@ -14,9 +20,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
-      - name: Install package (dev extras)
-        run: pip install -e ".[dev]"
+      # CPU-only torch, installed first and deliberately from PyTorch's own
+      # index: PyPI's default `torch` wheel bundles CUDA (~2.5 GB of driver
+      # libraries) that a CPU-only GitHub runner can never use. Installing it
+      # up front means the `[rl]` extra below finds the requirement already
+      # satisfied and does not pull the CUDA build.
+      - name: Install CPU-only torch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      # dev + rl, not dev alone: the test suite imports numpy unguarded and
+      # torch/gymnasium behind `pytest.importorskip`. With only `[dev]`,
+      # pytest fails collection on 7 modules, and the importorskip guards
+      # would silently skip the RL tests -- a green tick covering nothing.
+      # `viz` (matplotlib) is intentionally excluded: no test needs it.
+      - name: Install package (dev + rl extras)
+        run: pip install -e ".[dev,rl]"
 
       - name: Lint (ruff check)
         run: ruff check .

@@ -1,0 +1,12 @@
+# Normalize to LF in the repository regardless of the contributor's platform.
+# Without this, a CRLF checkout on Windows round-trips into the diff and
+# fails CI's `ruff format --check` for reasons unrelated to the change.
+* text=auto eol=lf
+
+# Binary media: never line-ending-normalized, never diffed as text.
+*.png binary
+*.mp4 binary
+*.pt  binary
+
+# Shell scripts must stay LF even if a contributor's editor prefers CRLF.
+*.sh text eol=lf

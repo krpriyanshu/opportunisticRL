@@ -88,7 +88,7 @@ re-discovered from scratch)
 
 3. **`CONDA_PREFIX` breaks CMake's Python discovery even after fixing
    `PATH`.** `colcon build` initially invoked
-   `/home/pro2024001/anaconda3/bin/python3` (no `catkin_pkg` installed
+   `~/anaconda3/bin/python3` (no `catkin_pkg` installed
    there) instead of the system Python ROS2 needs
    (`/usr/bin/python3`, which has `catkin_pkg`), causing every
    `ament_cmake_python`-using package to fail with
