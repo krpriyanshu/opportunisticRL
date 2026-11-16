@@ -21,6 +21,8 @@ Discrete, four actions, shared by every baseline:
 | 2 | `ATTEMPT_GRASP` | Commit to a grasp execution via the conventional manipulation stack. |
 | 3 | `ABORT` | Cancel an in-progress approach or grasp and return to a safe standby pose. |
 
+**ABORT during a committed grasp.** With `grasp_duration_steps > 1`, a grasp is a multi-step maneuver during which `WAIT`, `APPROACH` and `ATTEMPT_GRASP` are ignored. `ABORT` cancels it: no grasp, no failure penalty, and the arm returns to standby. The window is checked *before* the abort, so once the window has closed the grasp has already failed and `ABORT` cannot erase that. Aborting therefore pays off only when the policy foresees the window closing while it is still open, which keeps the abort decision anticipatory rather than reactive. Earlier revisions ignored `ABORT` mid-maneuver as well, so results from before this change were produced with a narrower action semantics.
+
 A fifth action (`REPOSITION`) and continuous parameters such as a target-relative offset were deferred until the four-action formulation could be shown insufficient by experiment. No such demonstration was produced, so the action space remains as specified.
 
 Actions are issued at a fixed **decision period**, a configuration value rather than a per-baseline constant, which decouples the RL decision rate from the underlying controller's rate and guarantees confound 2 by construction.

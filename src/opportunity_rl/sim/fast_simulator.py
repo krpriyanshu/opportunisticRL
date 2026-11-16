@@ -178,13 +178,32 @@ class FastSimulator:
         self._grasp_just_failed = False
 
         # If a multi-step grasp maneuver is in progress, it is committed:
-        # the current action is ignored, and the only thing that matters
-        # is whether good_opportunity still holds this step.
+        # WAIT/APPROACH/ATTEMPT_GRASP are ignored, and what matters is
+        # whether good_opportunity still holds this step. ABORT is the one
+        # action that can still change the outcome (rl-formulation.md
+        # Section 2: ABORT "cancels an in-progress approach or grasp").
         if self._grasp_steps_remaining > 0:
+            # The window check comes BEFORE the abort check on purpose. If
+            # the window has already closed, the grasp has failed, and
+            # aborting now cannot undo that. Otherwise a policy could
+            # watch the current state, see the window close, and abort
+            # every time to dodge the failure penalty. Checking the window
+            # first means ABORT only helps when issued while the window
+            # is still open, i.e. when the policy *anticipates* that the
+            # window will close before the maneuver completes. That is
+            # exactly the decision H1 is about.
             if not self._good_opportunity_now():
                 # Window closed mid-maneuver -> the committed grasp fails.
                 self._grasp_steps_remaining = 0
                 self._grasp_just_failed = True
+                self._approach_target = self._standby_position
+                return
+            if action == ABORT:
+                # Deliberate cancel while the window is still open: no
+                # grasp and no failure flag (so no failure penalty); the
+                # arm returns to standby. The policy still pays the
+                # per-step time cost for the steps it spent committed.
+                self._grasp_steps_remaining = 0
                 self._approach_target = self._standby_position
                 return
             self._grasp_steps_remaining -= 1
