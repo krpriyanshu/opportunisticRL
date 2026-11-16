@@ -89,7 +89,12 @@ python3 experiments/learning_curve_h1.py \
 
 Each training run writes `results/<run>/metadata.json` capturing seed, git revision, resolved configuration, total environment steps and evaluation results, alongside a checkpoint. `results/` is gitignored. Training and evaluation never share a seed; evaluation uses `seed + 10_000`.
 
-**Note on reproduction:** the statistics reported in the documentation are not currently regenerable by any committed script — they were computed from `curve_data.json` by ad hoc analysis. Committing that analysis is one of the outstanding items in [docs/project-plan.md §4](docs/project-plan.md#4-status-and-what-remains).
+```bash
+# Sign tests, per-cell table and per-severity (H2) breakdown from a sweep's output.
+python3 experiments/analyze_h1.py results/h1_learning_curve/curve_data.json
+```
+
+**Note on reproduction:** the statistics currently reported in the documentation were computed by ad hoc analysis before `experiments/analyze_h1.py` existed, and the `curve_data.json` files they came from are not in the repository. The script implements the independent-unit scheme from [docs/evaluation.md §4](docs/evaluation.md#4-statistical-analysis). Re-running the sweep and then the script is how the reported numbers should be regenerated.
 
 ## Known limitations
 
